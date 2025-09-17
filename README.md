@@ -1,73 +1,87 @@
-# Welcome to your Lovable project
+# SupplierPrices.io – Price Aggregation Dashboard
 
-## Project info
+Modern React + Vite app for aggregating supplier prices with Supabase as the backend and shadcn/ui for the component system.
 
-**URL**: https://lovable.dev/projects/48e82226-3dd3-4e74-acd9-9c97ccb528cb
+## Stack
 
-## How can I edit this code?
+- Vite + React + TypeScript
+- Supabase (Database + Auth-ready client)
+- shadcn/ui + Radix UI + Tailwind CSS
+- TanStack Table + TanStack Query
 
-There are several ways of editing your application.
+## Local Development
 
-**Use Lovable**
+Prereqs:
+- Node.js 18+ (recommended install via nvm)
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/48e82226-3dd3-4e74-acd9-9c97ccb528cb) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
+Install and run:
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
 npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+The dev server runs on http://localhost:8080 (via Vite).
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Environment Setup (Supabase)
 
-**Use GitHub Codespaces**
+Create a `.env.local` file in the project root with:
+```env
+VITE_SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
+VITE_SUPABASE_ANON_KEY=YOUR_ANON_PUBLIC_KEY
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+Notes:
+- Do not wrap values in quotes and do not end with semicolons.
+- Keys must be prefixed with `VITE_` to be exposed to the client by Vite.
+- Restart `npm run dev` after editing `.env.local`.
 
-## What technologies are used for this project?
+### Debugging env values
+If you see "Invalid supabaseUrl" or similar, check your browser console. The app logs both the raw and cleaned Supabase URL on boot.
 
-This project is built with:
+## Database Schema (Supabase)
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+Tables used:
+- `suppliers` (id, name, contact, tags[])
+- `products` (id, name, category, unit)
+- `offers` (id, product_id, supplier_id, raw_price, raw_currency, pack_qty, pack_unit, normalized_price_per_unit, normalized_unit, source_id, updated_at, in_stock)
+- `sources` (id, name, type, status, row_count, uploaded_at, mapping jsonb)
+- `profiles` (id, company_name, avatar_url, updated_at) – single row used for sidebar footer
 
-## How can I deploy this project?
+Recommended FK and cascade (optional but useful):
+```sql
+alter table offers
+  add constraint offers_source_id_fkey
+  foreign key (source_id) references sources(id) on delete cascade;
+```
 
-Simply open [Lovable](https://lovable.dev/projects/48e82226-3dd3-4e74-acd9-9c97ccb528cb) and click on Share -> Publish.
+## Features
 
-## Can I connect a custom domain to my Lovable project?
+- Upload price data (paste CSV/TSV or upload CSV) with column mapper and preview
+- Ingestion writes to `sources`, upserts into `suppliers`/`products`, and inserts into `offers`
+- Dashboard with compact enterprise table, sorting, in-stock filter, live stats
+- Suppliers page: read/add/update suppliers
+- Library page: list sources, delete source (deletes related offers first), sort by uploaded time
+- Product matrix modal shows offers for a product with best/average prices
+- Collapsible sidebar with profile editor (stored in `profiles`)
 
-Yes, you can!
+## Common Issues
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+- Blank page after starting dev server: ensure `.env.local` is present and restart the dev server.
+- Invalid Supabase URL: check for quotes/semicolons in `.env.local`.
+- Upload preview empty: add a header row or paste single-line data; map required fields (Supplier, Product Name, Price).
+- Delete source fails with NOT NULL on offers.source_id: fixed by deleting offers first in the app; consider ON DELETE CASCADE as shown above.
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+## Scripts
+
+```json
+{
+  "dev": "vite",
+  "build": "vite build",
+  "preview": "vite preview",
+  "lint": "eslint ."
+}
+```
+
+## License
+
+Proprietary – internal use for SupplierPrices.io unless otherwise specified.
