@@ -9,7 +9,11 @@ import {
   Settings, 
   Menu,
   X,
-  Command
+  Command,
+  Settings as SettingsIcon,
+  HelpCircle,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +22,9 @@ import { CommandPalette } from "@/components/command-palette";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { supabase } from "@/integrations/supabase/client";
 
 const sidebarItems = [
   {
@@ -44,23 +51,27 @@ const sidebarItems = [
     icon: Users,
     shortcut: "g s",
   },
-  {
-    title: "Settings",
-    href: "/app/settings",
-    icon: Settings,
-    shortcut: "g t",
-  },
 ];
 
-function SidebarContent({ onItemClick }: { onItemClick?: () => void }) {
+function SidebarContent({ onItemClick, collapsed, setProfileOpen, avatarUrl, companyName, setCollapsed }: { 
+  onItemClick?: () => void; 
+  collapsed?: boolean;
+  setProfileOpen: (open: boolean) => void;
+  avatarUrl: string;
+  companyName: string;
+  setCollapsed?: (collapsed: boolean) => void;
+}) {
   const location = useLocation();
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-14 items-center border-b border-sidebar-border px-4">
-        <h2 className="text-lg font-semibold text-sidebar-foreground">
-          Price Aggregator
-        </h2>
+      <div className="flex h-14 items-center border-b border-sidebar-border px-4 justify-between">
+        <h2 className={cn("text-lg font-semibold text-sidebar-foreground", collapsed && "sr-only")}>SupplierPrices.io</h2>
+        {!collapsed && setCollapsed && (
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setCollapsed(true)}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+        )}
       </div>
       
       <div className="flex-1 overflow-auto py-2">
@@ -78,11 +89,39 @@ function SidebarContent({ onItemClick }: { onItemClick?: () => void }) {
                 )}
               >
                 <item.icon className="h-4 w-4" />
-                <span>{item.title}</span>
+                {!collapsed && <span>{item.title}</span>}
               </NavLink>
             );
           })}
         </nav>
+      </div>
+
+      {/* Bottom actions */}
+      <div className="mt-auto border-t border-sidebar-border p-2 space-y-1">
+        <NavLink to="/app/settings" onClick={onItemClick} className="sidebar-nav-item">
+          <SettingsIcon className="h-4 w-4" />
+          {!collapsed && <span>Settings</span>}
+        </NavLink>
+        <a href="https://www.youtube.com/watch?v=dQw4w9WgXcQ" target="_blank" rel="noreferrer" className="sidebar-nav-item">
+          <HelpCircle className="h-4 w-4" />
+          {!collapsed && <span>Get Help</span>}
+        </a>
+      </div>
+
+      {/* Company profile footer */}
+      <div className="border-t border-sidebar-border p-3">
+        <button className="flex items-center gap-2 w-full text-left" onClick={() => setProfileOpen(true)}>
+          <Avatar className="h-7 w-7">
+            <AvatarImage src={avatarUrl} alt="Company" />
+            <AvatarFallback>{(companyName || "CO").split(" ").map(w => w?.[0]).filter(Boolean).slice(0,2).join("")}</AvatarFallback>
+          </Avatar>
+          {!collapsed && (
+            <div className="flex-1">
+              <div className="text-sm font-medium">{companyName}</div>
+              <div className="text-xs text-muted-foreground">View profile</div>
+            </div>
+          )}
+        </button>
       </div>
     </div>
   );
@@ -91,6 +130,10 @@ function SidebarContent({ onItemClick }: { onItemClick?: () => void }) {
 export function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [companyName, setCompanyName] = useState<string>("Your Company");
+  const [avatarUrl, setAvatarUrl] = useState<string>("");
   const isMobile = useIsMobile();
   const location = useLocation();
 
@@ -167,12 +210,40 @@ export function AppShell() {
     setSidebarOpen(false);
   }, [location.pathname]);
 
+  // Load company profile (global single row)
+  useEffect(() => {
+    const load = async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, company_name, avatar_url, updated_at")
+        .order("updated_at", { ascending: false })
+        .limit(1);
+      if (!error && data && data[0]) {
+        setCompanyName(data[0].company_name || "Your Company");
+        setAvatarUrl(data[0].avatar_url || "");
+      }
+    };
+    load();
+  }, []);
+
   return (
     <div className="flex h-screen w-full bg-background">
       {/* Desktop Sidebar */}
       {!isMobile && (
-        <div className="w-64 border-r border-sidebar-border bg-sidebar">
-          <SidebarContent />
+        <div className={cn(collapsed ? "w-16" : "w-64", "border-r border-sidebar-border bg-sidebar")}>          
+          <div className="h-full flex flex-col relative">
+            {collapsed && (
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="absolute top-2 right-2 h-7 w-7 z-10" 
+                onClick={() => setCollapsed(false)}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            )}
+            <SidebarContent collapsed={collapsed} setProfileOpen={setProfileOpen} avatarUrl={avatarUrl} companyName={companyName} setCollapsed={setCollapsed} />
+          </div>
         </div>
       )}
 
@@ -180,7 +251,7 @@ export function AppShell() {
       {isMobile && (
         <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
           <SheetContent side="left" className="w-64 p-0 bg-sidebar">
-            <SidebarContent onItemClick={() => setSidebarOpen(false)} />
+            <SidebarContent onItemClick={() => setSidebarOpen(false)} setProfileOpen={setProfileOpen} avatarUrl={avatarUrl} companyName={companyName} />
           </SheetContent>
         </Sheet>
       )}
@@ -237,6 +308,41 @@ export function AppShell() {
 
       {/* Command Palette */}
       <CommandPalette open={commandOpen} onOpenChange={setCommandOpen} />
+
+      {/* Profile Customizer */}
+      <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Company Profile</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-sm font-medium">Company Name</label>
+              <Input placeholder="Your Company" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Avatar URL</label>
+              <Input placeholder="https://..." value={avatarUrl} onChange={(e) => setAvatarUrl(e.target.value)} />
+            </div>
+            <div className="flex justify-end">
+              <Button onClick={async () => {
+                const { data } = await supabase.from("profiles").select("id").limit(1);
+                if (data && data[0]?.id) {
+                  await supabase
+                    .from("profiles")
+                    .update({ company_name: companyName, avatar_url: avatarUrl, updated_at: new Date().toISOString() })
+                    .eq("id", data[0].id);
+                } else {
+                  await supabase
+                    .from("profiles")
+                    .insert([{ company_name: companyName, avatar_url: avatarUrl }]);
+                }
+                setProfileOpen(false);
+              }}>Save</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

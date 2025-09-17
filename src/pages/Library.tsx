@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { 
@@ -21,7 +23,7 @@ import {
   Mail,
   File
 } from "lucide-react";
-import { getSources, deleteSource } from "@/lib/storage";
+import { supabase } from "@/integrations/supabase/client";
 import { formatDistanceToNow } from "date-fns";
 import type { Source } from "@/lib/types";
 
@@ -40,21 +42,65 @@ const statusColors = {
 
 export default function Library() {
   const { toast } = useToast();
-  const [sources, setSources] = useState(() => getSources());
+  const [sources, setSources] = useState<any[]>([]);
+  const [sortOrder, setSortOrder] = useState<"latest" | "oldest">("latest");
   const [selectedSource, setSelectedSource] = useState<Source | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+
+  useEffect(() => {
+    const load = async () => {
+      const { data, error } = await supabase
+        .from("sources")
+        .select("id,name,type,status,row_count,uploaded_at,mapping");
+      if (error) return;
+      const normalized = (data || []).map(s => ({
+          id: s.id,
+          name: s.name,
+          type: s.type,
+          status: s.status,
+          rowCount: s.row_count,
+          uploadedAt: s.uploaded_at,
+          mapping: s.mapping || {},
+        }));
+      setSources(normalized);
+    };
+    load();
+  }, []);
 
   const handleViewSource = (source: Source) => {
     setSelectedSource(source);
     setPreviewOpen(true);
   };
 
-  const handleDeleteSource = (sourceId: string) => {
-    deleteSource(sourceId);
-    setSources(getSources());
+  const handleDeleteSource = async (sourceId: string) => {
+    // Delete dependent offers FIRST to avoid FK/NOT NULL issues, then delete the source
+    const { error: offersErr } = await supabase.from("offers").delete().eq("source_id", sourceId);
+    if (offersErr) {
+      toast({ title: "Delete failed", description: offersErr.message, variant: "destructive" });
+      return;
+    }
+
+    const { error: sourceErr } = await supabase.from("sources").delete().eq("id", sourceId);
+    if (sourceErr) {
+      toast({ title: "Delete failed", description: sourceErr.message, variant: "destructive" });
+      return;
+    }
+    // Refresh
+    const { data } = await supabase.from("sources").select("id,name,type,status,row_count,uploaded_at,mapping");
+    setSources(
+      (data || []).map(s => ({
+        id: s.id,
+        name: s.name,
+        type: s.type,
+        status: s.status,
+        rowCount: s.row_count,
+        uploadedAt: s.uploaded_at,
+        mapping: s.mapping || {},
+      }))
+    );
     toast({
       title: "Source deleted",
-      description: "The source and all associated offers have been removed",
+      description: "The source and associated offers have been removed",
     });
   };
 
@@ -79,13 +125,32 @@ export default function Library() {
     );
   }
 
+  const sortedSources = [...sources].sort((a, b) => {
+    const ta = new Date(a.uploadedAt).getTime();
+    const tb = new Date(b.uploadedAt).getTime();
+    return sortOrder === "latest" ? tb - ta : ta - tb;
+  });
+
   return (
     <div className="container mx-auto py-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Source Library</h1>
-        <p className="text-muted-foreground">
-          Manage your ingested price sources and view parsing details
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">Source Library</h1>
+          <p className="text-muted-foreground">
+            Manage your ingested price sources and view parsing details
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as any)}>
+            <SelectTrigger className="w-40">
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="latest">Latest first</SelectItem>
+              <SelectItem value="oldest">Oldest first</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <Card className="table-container">
@@ -99,6 +164,7 @@ export default function Library() {
           <Table>
             <TableHeader className="table-header">
               <TableRow>
+                <TableHead>#</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Status</TableHead>
@@ -108,10 +174,11 @@ export default function Library() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sources.map((source) => {
+              {sortedSources.map((source, idx) => {
                 const IconComponent = sourceIcons[source.type];
                 return (
                   <TableRow key={source.id} className="table-row">
+                    <TableCell className="w-10 text-xs text-muted-foreground">{idx + 1}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <IconComponent className="h-4 w-4 text-muted-foreground" />

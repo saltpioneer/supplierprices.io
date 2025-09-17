@@ -84,7 +84,11 @@ export function filterProductOffers(
 
 // Get unique categories from products
 export function getUniqueCategories(products: Product[]): string[] {
-  const categories = new Set(products.map(p => p.category));
+  const categories = new Set(
+    products
+      .map(p => (p.category || "").trim())
+      .filter((c) => c.length > 0)
+  );
   return Array.from(categories).sort();
 }
 

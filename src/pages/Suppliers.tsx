@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -30,14 +30,14 @@ import {
   Mail,
   Phone
 } from "lucide-react";
-import { getSuppliers, getOffers, addSupplier, updateSupplier } from "@/lib/storage";
+import { supabase } from "@/integrations/supabase/client";
 import { formatDistanceToNow } from "date-fns";
 import type { Supplier } from "@/lib/types";
 
 export default function Suppliers() {
   const { toast } = useToast();
-  const [suppliers, setSuppliers] = useState(() => getSuppliers());
-  const [offers] = useState(() => getOffers());
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [offers, setOffers] = useState<any[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
   const [formData, setFormData] = useState({
@@ -45,6 +45,19 @@ export default function Suppliers() {
     contact: "",
     tags: [] as string[],
   });
+
+  // Load suppliers and offers from Supabase
+  useEffect(() => {
+    const load = async () => {
+      const [supRes, offRes] = await Promise.all([
+        supabase.from("suppliers").select("id,name,contact,tags"),
+        supabase.from("offers").select("id,supplier_id,updated_at"),
+      ]);
+      if (!supRes.error && supRes.data) setSuppliers(supRes.data);
+      if (!offRes.error && offRes.data) setOffers(offRes.data);
+    };
+    load();
+  }, []);
 
   // Get offer stats per supplier
   const supplierStats = suppliers.map(supplier => {
@@ -82,9 +95,9 @@ export default function Suppliers() {
     setDialogOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!formData.name.trim()) {
       toast({
         title: "Name required",
@@ -101,24 +114,34 @@ export default function Suppliers() {
     };
 
     if (editingSupplier) {
-      updateSupplier(editingSupplier.id, supplierData);
-      toast({
-        title: "Supplier updated",
-        description: `${supplierData.name} has been updated`,
-      });
+      const { error } = await supabase
+        .from("suppliers")
+        .update({ name: supplierData.name, contact: supplierData.contact, tags: supplierData.tags || [] })
+        .eq("id", editingSupplier.id);
+      if (error) {
+        toast({ title: "Update failed", description: error.message, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Supplier updated", description: `${supplierData.name} has been updated` });
     } else {
-      const newSupplier: Supplier = {
-        id: `supplier-${Date.now()}`,
-        ...supplierData,
-      };
-      addSupplier(newSupplier);
-      toast({
-        title: "Supplier added",
-        description: `${supplierData.name} has been added to your supplier list`,
-      });
+      const id = crypto.randomUUID();
+      const { error } = await supabase
+        .from("suppliers")
+        .insert([{ id, name: supplierData.name, contact: supplierData.contact, tags: supplierData.tags || [] }]);
+      if (error) {
+        toast({ title: "Insert failed", description: error.message, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Supplier added", description: `${supplierData.name} has been added to your supplier list` });
     }
 
-    setSuppliers(getSuppliers());
+    // Refresh lists
+    const [supRes, offRes] = await Promise.all([
+      supabase.from("suppliers").select("id,name,contact,tags"),
+      supabase.from("offers").select("id,supplier_id,updated_at"),
+    ]);
+    if (!supRes.error && supRes.data) setSuppliers(supRes.data);
+    if (!offRes.error && offRes.data) setOffers(offRes.data);
     setDialogOpen(false);
   };
 

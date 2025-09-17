@@ -22,7 +22,7 @@ interface ParsedData {
 
 interface ColumnMapperProps {
   data: ParsedData;
-  onIngest: () => void;
+  onIngest: (mapping: ColumnMapping) => void;
 }
 
 const REQUIRED_FIELDS = [
@@ -176,7 +176,7 @@ export function ColumnMapper({ data, onIngest }: ColumnMapperProps) {
             Preview Mapped Data
           </CardTitle>
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent className="p-3 pt-1">
           <div className="border rounded-lg overflow-hidden">
             <Table>
               <TableHeader className="table-header">
@@ -197,7 +197,13 @@ export function ColumnMapper({ data, onIngest }: ColumnMapperProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {mappedData.map((row, index) => (
+                {mappedData.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={1 + REQUIRED_FIELDS.length + OPTIONAL_FIELDS.length} className="h-16 text-center text-sm text-muted-foreground">
+                      No preview rows. Ensure your input has data rows and you mapped required fields.
+                    </TableCell>
+                  </TableRow>
+                ) : mappedData.map((row, index) => (
                   <TableRow key={index} className="table-row">
                     <TableCell className="font-medium">{index + 1}</TableCell>
                     {[...REQUIRED_FIELDS, ...OPTIONAL_FIELDS].map((field) => (
@@ -230,8 +236,8 @@ export function ColumnMapper({ data, onIngest }: ColumnMapperProps) {
       {/* Ingest Button */}
       <div className="flex justify-end">
         <Button 
-          onClick={onIngest}
-          disabled={!isValidMapping()}
+          onClick={() => onIngest(mapping)}
+          disabled={!isValidMapping() || data.rows.length === 0}
           size="lg"
           className="min-w-32"
         >

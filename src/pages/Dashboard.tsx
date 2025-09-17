@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/data-table";
 import { ProductMatrixDrawer } from "@/components/product-matrix-drawer";
@@ -17,7 +18,7 @@ import {
   Users,
   Clock
 } from "lucide-react";
-import { getProducts, getOffers, getSuppliers } from "@/lib/storage";
+import { supabase } from "@/integrations/supabase/client";
 import { 
   createProductOffers, 
   filterProductOffers, 
@@ -31,11 +32,12 @@ import type { ProductOffer, DashboardFilters } from "@/lib/types";
 
 export default function Dashboard() {
   const { toast } = useToast();
-  const [products] = useState(() => getProducts());
-  const [offers] = useState(() => getOffers());
-  const [suppliers] = useState(() => getSuppliers());
+  const [products, setProducts] = useState<any[]>([]);
+  const [offers, setOffers] = useState<any[]>([]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<ProductOffer | null>(null);
   const [matrixOpen, setMatrixOpen] = useState(false);
+  const [counts, setCounts] = useState({ products: 0, suppliers: 0, offers: 0 });
   
   const [filters, setFilters] = useState<DashboardFilters>({
     search: "",
@@ -43,26 +45,95 @@ export default function Dashboard() {
     suppliers: [],
     inStockOnly: false,
   });
+  const [sortKey, setSortKey] = useState<string>("price");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  // Load data from Supabase
+  const loadData = async () => {
+    const [prodRes, supRes, offRes] = await Promise.all([
+      supabase.from("products").select("id,name,category,unit"),
+      supabase.from("suppliers").select("id,name,contact,tags"),
+      supabase.from("offers").select(
+        "id,product_id,supplier_id,raw_price,raw_currency,pack_qty,pack_unit,normalized_price_per_unit,normalized_unit,source_id,updated_at,in_stock"
+      ),
+    ]);
+
+    if (!prodRes.error && prodRes.data) setProducts(prodRes.data);
+    if (!supRes.error && supRes.data) setSuppliers(supRes.data);
+    if (!offRes.error && offRes.data) setOffers(offRes.data);
+
+    // Lightweight, accurate counts directly from DB
+    const [pCount, sCount, oCount] = await Promise.all([
+      supabase.from("products").select("*", { count: "exact", head: true }),
+      supabase.from("suppliers").select("*", { count: "exact", head: true }),
+      supabase.from("offers").select("*", { count: "exact", head: true }),
+    ]);
+    setCounts({
+      products: pCount.count ?? 0,
+      suppliers: sCount.count ?? 0,
+      offers: oCount.count ?? 0,
+    });
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  // Listen for navigation to refresh data when coming from upload
+  useEffect(() => {
+    const handleFocus = () => loadData();
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, []);
 
   // Create product offers data
   const allProductOffers = useMemo(() => 
-    createProductOffers(products, offers, suppliers), 
+    createProductOffers(
+      products.map(p => ({ id: p.id, name: p.name, category: p.category, unit: p.unit })),
+      offers.map(o => ({
+        id: o.id,
+        productId: o.product_id,
+        supplierId: o.supplier_id,
+        rawPrice: Number(o.raw_price),
+        rawCurrency: o.raw_currency,
+        packQty: o.pack_qty != null ? Number(o.pack_qty) : undefined,
+        packUnit: o.pack_unit || undefined,
+        normalizedPricePerUnit: Number(o.normalized_price_per_unit),
+        normalizedUnit: o.normalized_unit,
+        sourceId: o.source_id,
+        updatedAt: o.updated_at,
+        inStock: o.in_stock ?? undefined,
+      })),
+      suppliers.map(s => ({ id: s.id, name: s.name, contact: s.contact || undefined, tags: s.tags || [] }))
+    ), 
     [products, offers, suppliers]
   );
 
   // Apply filters
-  const filteredProductOffers = useMemo(() => 
-    filterProductOffers(allProductOffers, filters),
-    [allProductOffers, filters]
-  );
+  const filteredProductOffers = useMemo(() => {
+    const base = filterProductOffers(allProductOffers, filters);
+    if (sortKey === "price") {
+      return [...base].sort((a, b) =>
+        sortDir === "asc"
+          ? a.bestOffer.normalizedPricePerUnit - b.bestOffer.normalizedPricePerUnit
+          : b.bestOffer.normalizedPricePerUnit - a.bestOffer.normalizedPricePerUnit
+      );
+    }
+    if (sortKey === "updated") {
+      return [...base].sort((a, b) => (sortDir === "asc" ? a.lastUpdated.localeCompare(b.lastUpdated) : b.lastUpdated.localeCompare(a.lastUpdated)));
+    }
+    return base;
+  }, [allProductOffers, filters, sortKey, sortDir]);
 
-  const categories = useMemo(() => getUniqueCategories(products), [products]);
+  const categories = useMemo(() => getUniqueCategories(
+    products.map(p => ({ id: p.id, name: p.name, category: p.category, unit: p.unit }))
+  ), [products]);
 
   // Stats
   const stats = useMemo(() => ({
-    totalProducts: allProductOffers.length,
-    totalSuppliers: suppliers.length,
-    totalOffers: offers.length,
+    totalProducts: counts.products,
+    totalSuppliers: counts.suppliers,
+    totalOffers: counts.offers,
     avgSavings: allProductOffers.reduce((acc, po) => {
       const otherPrices = po.otherOffers.map(o => o.normalizedPricePerUnit);
       if (otherPrices.length === 0) return acc;
@@ -70,7 +141,7 @@ export default function Dashboard() {
       const savings = ((avgOtherPrice - po.bestOffer.normalizedPricePerUnit) / avgOtherPrice) * 100;
       return acc + Math.max(0, savings);
     }, 0) / Math.max(1, allProductOffers.length)
-  }), [allProductOffers, suppliers.length, offers.length]);
+  }), [allProductOffers, counts.products, counts.suppliers, counts.offers]);
 
   const handleExport = () => {
     const csvContent = exportToCSV(filteredProductOffers);
@@ -89,10 +160,15 @@ export default function Dashboard() {
   // Table columns
   const columns = [
     {
+      id: "rowNumber",
+      header: "#",
+      cell: ({ row }: any) => <span className="text-xs text-muted-foreground">{Number(row.id) + 1}</span>,
+    },
+    {
       accessorKey: "product.name",
       header: "Product",
       cell: ({ row }: any) => (
-        <div className="font-medium">
+        <div className="font-medium text-sm">
           {row.original.product.name}
         </div>
       ),
@@ -101,7 +177,7 @@ export default function Dashboard() {
       accessorKey: "product.category", 
       header: "Category",
       cell: ({ row }: any) => (
-        <Badge variant="secondary">
+        <Badge variant="secondary" className="text-[10px]">
           {row.original.product.category}
         </Badge>
       ),
@@ -109,12 +185,13 @@ export default function Dashboard() {
     {
       accessorKey: "product.unit",
       header: "Unit",
+      cell: ({ row }: any) => <span className="text-xs text-muted-foreground">{row.original.product.unit}</span>,
     },
     {
       accessorKey: "bestSupplier.name",
       header: "Best Supplier",
       cell: ({ row }: any) => (
-        <div className="font-medium">
+        <div className="font-medium text-sm">
           {row.original.bestSupplier.name}
         </div>
       ),
@@ -123,7 +200,7 @@ export default function Dashboard() {
       accessorKey: "bestOffer.normalizedPricePerUnit",
       header: "Best Price",
       cell: ({ row }: any) => (
-        <div className="price-highlight">
+        <div className="price-highlight text-sm">
           {formatPrice(row.original.bestOffer.normalizedPricePerUnit)}
           <span className="text-xs text-muted-foreground ml-1">
             / {row.original.bestOffer.normalizedUnit}
@@ -135,7 +212,7 @@ export default function Dashboard() {
       accessorKey: "totalOffers",
       header: "Other Offers",
       cell: ({ row }: any) => (
-        <Badge variant="outline">
+        <Badge variant="outline" className="text-[10px]">
           {row.original.totalOffers - 1}
         </Badge>
       ),
@@ -144,7 +221,7 @@ export default function Dashboard() {
       accessorKey: "lastUpdated",
       header: "Last Updated", 
       cell: ({ row }: any) => (
-        <span className="text-sm text-muted-foreground">
+        <span className="text-xs text-muted-foreground">
           {formatDistanceToNow(new Date(row.original.lastUpdated), { addSuffix: true })}
         </span>
       ),
@@ -230,7 +307,7 @@ export default function Dashboard() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-col gap-4 md:flex-row">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center">
             <div className="flex-1">
               <Input
                 placeholder="Search products, suppliers..."
@@ -253,6 +330,33 @@ export default function Dashboard() {
                     {category}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">In stock</span>
+              <Switch
+                checked={!!filters.inStockOnly}
+                onCheckedChange={(v) => setFilters(prev => ({ ...prev, inStockOnly: v }))}
+              />
+            </div>
+
+            <Select value={sortKey} onValueChange={(v) => setSortKey(v)}>
+              <SelectTrigger className="w-40">
+                <SelectValue placeholder="Sort" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="price">Sort by Price</SelectItem>
+                <SelectItem value="updated">Last Updated</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={sortDir} onValueChange={(v) => setSortDir(v as "asc" | "desc") }>
+              <SelectTrigger className="w-32">
+                <SelectValue placeholder="Order" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="asc">Asc</SelectItem>
+                <SelectItem value="desc">Desc</SelectItem>
               </SelectContent>
             </Select>
             <Button onClick={handleExport} variant="outline">

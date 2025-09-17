@@ -1,10 +1,5 @@
-import { useMemo, useState } from "react";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { useMemo, useState, useEffect } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { 
   Table,
@@ -22,7 +17,7 @@ import {
   Package,
   TrendingUp
 } from "lucide-react";
-import { getOffers, getSuppliers } from "@/lib/storage";
+import { supabase } from "@/integrations/supabase/client";
 import { formatPrice } from "@/lib/normalize";
 import { formatDistanceToNow } from "date-fns";
 import type { ProductOffer } from "@/lib/types";
@@ -38,8 +33,49 @@ export function ProductMatrixDrawer({
   onOpenChange, 
   productOffer 
 }: ProductMatrixDrawerProps) {
-  const [offers] = useState(() => getOffers());
-  const [suppliers] = useState(() => getSuppliers());
+  const [offers, setOffers] = useState<any[]>([]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+
+  // Load data from Supabase when dialog opens
+  useEffect(() => {
+    if (!open || !productOffer) return;
+    
+    const load = async () => {
+      const [offRes, supRes] = await Promise.all([
+        supabase.from("offers").select(
+          "id,product_id,supplier_id,raw_price,raw_currency,pack_qty,pack_unit,normalized_price_per_unit,normalized_unit,source_id,updated_at,in_stock"
+        ),
+        supabase.from("suppliers").select("id,name,contact,tags"),
+      ]);
+
+      if (!offRes.error && offRes.data) {
+        setOffers(offRes.data.map(o => ({
+          id: o.id,
+          productId: o.product_id,
+          supplierId: o.supplier_id,
+          rawPrice: Number(o.raw_price),
+          rawCurrency: o.raw_currency,
+          packQty: o.pack_qty != null ? Number(o.pack_qty) : undefined,
+          packUnit: o.pack_unit || undefined,
+          normalizedPricePerUnit: Number(o.normalized_price_per_unit),
+          normalizedUnit: o.normalized_unit,
+          sourceId: o.source_id,
+          updatedAt: o.updated_at,
+          inStock: o.in_stock ?? undefined,
+        })));
+      }
+      if (!supRes.error && supRes.data) {
+        setSuppliers(supRes.data.map(s => ({ 
+          id: s.id, 
+          name: s.name, 
+          contact: s.contact || undefined, 
+          tags: s.tags || [] 
+        })));
+      }
+    };
+    
+    load();
+  }, [open, productOffer]);
 
   const allOffers = useMemo(() => {
     if (!productOffer) return [];
@@ -76,14 +112,14 @@ export function ProductMatrixDrawer({
   if (!productOffer) return null;
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-[800px] sm:w-[900px] overflow-y-auto">
-        <SheetHeader>
-          <SheetTitle className="flex items-center gap-2">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-4xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
             <Package className="h-5 w-5" />
             {productOffer.product.name}
-          </SheetTitle>
-        </SheetHeader>
+          </DialogTitle>
+        </DialogHeader>
         
         <div className="space-y-6 py-6">
           {/* Product Info */}
@@ -198,7 +234,7 @@ export function ProductMatrixDrawer({
             </Table>
           </div>
         </div>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -5,8 +5,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AppShell } from "@/components/app-shell";
-import { initializeDemoData } from "@/lib/seed";
-import { useEffect } from "react";
 
 // Import pages
 import Dashboard from "@/pages/Dashboard";
@@ -19,10 +17,6 @@ import ProductDetail from "@/pages/ProductDetail";
 const queryClient = new QueryClient();
 
 const App = () => {
-  useEffect(() => {
-    initializeDemoData();
-  }, []);
-
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="system" storageKey="price-aggregator-theme">
