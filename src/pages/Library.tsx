@@ -147,11 +147,6 @@ export default function Library() {
     );
   }
 
-  const sortedSources = [...sources].sort((a, b) => {
-    const ta = new Date(a.uploadedAt).getTime();
-    const tb = new Date(b.uploadedAt).getTime();
-    return sortOrder === "latest" ? tb - ta : ta - tb;
-  });
 
   return (
     <div className="container mx-auto py-6 space-y-6">
@@ -189,68 +184,64 @@ export default function Library() {
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader className="table-header">
-              <TableRow>
-                <TableHead>#</TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Rows</TableHead>
-                <TableHead>Uploaded</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {sortedSources.map((source, idx) => {
-                const IconComponent = sourceIcons[source.type];
-                return (
-                  <TableRow key={source.id} className="table-row">
-                    <TableCell className="w-10 text-xs text-muted-foreground">{idx + 1}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <IconComponent className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-medium">{source.name}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">
-                        {source.type.toUpperCase()}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={statusColors[source.status]}>
-                        {source.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{source.rowCount.toLocaleString()}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {formatDistanceToNow(new Date(source.uploadedAt), { addSuffix: true })}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleViewSource(source)}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDeleteSource(source.id)}
-                          className="text-destructive hover:text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+          <DataTable
+            columns={[
+              {
+                accessorKey: "name",
+                header: "Name",
+                cell: ({ row }: any) => {
+                  const Icon = sourceIcons[row.original.type as keyof typeof sourceIcons] || File;
+                  return (
+                    <div className="flex items-center gap-2">
+                      <Icon className="h-4 w-4 text-muted-foreground" />
+                      <span className="font-medium">{row.original.name}</span>
+                    </div>
+                  );
+                },
+              },
+              { accessorKey: "type", header: "Type", cell: ({ row }: any) => {
+                const text = String(row.original.type || "").toUpperCase();
+                return <Badge variant="outline">{text || "-"}</Badge>;
+              } },
+              { accessorKey: "status", header: "Status", cell: ({ row }: any) => {
+                const variant = statusColors[row.original.status as keyof typeof statusColors] ?? "default";
+                const label = String(row.original.status || "");
+                return <Badge variant={variant as any}>{label || "-"}</Badge>;
+              } },
+              { accessorKey: "rowCount", header: "Rows" },
+              { accessorKey: "uploadedAt", header: "Uploaded", cell: ({ row }: any) => {
+                const d = row.original.uploadedAt ? new Date(row.original.uploadedAt) : null;
+                const text = d && !isNaN(d.getTime()) ? formatDistanceToNow(d, { addSuffix: true }) : "Never";
+                return <span className="text-xs text-muted-foreground">{text}</span>;
+              } },
+            ]}
+            data={sortedSources}
+            searchKey="name"
+            getRowId={(row: any) => row.id}
+            onBulkDelete={async (rows: any[]) => {
+              const ids = rows.map((r) => r.id);
+              if (!ids.length) return;
+              const { error: offersErr } = await supabase.from("offers").delete().in("source_id", ids);
+              if (offersErr) return;
+              const { error: srcErr } = await supabase.from("sources").delete().in("id", ids);
+              if (srcErr) return;
+              const { data } = await supabase.from("sources").select("id,name,type,status,row_count,uploaded_at,mapping");
+              setSources((data || []).map(s => ({ id: s.id, name: s.name, type: s.type, status: s.status, rowCount: s.row_count, uploadedAt: s.uploaded_at, mapping: s.mapping || {} })));
+            }}
+            onBulkExportCsv={(rows: any[]) => {
+              const header = ["Name","Type","Status","Rows","Uploaded"];
+              const lines = rows.map((r) => [r.name, r.type, r.status, String(r.rowCount), r.uploadedAt]);
+              const csv = [header, ...lines].map((row) => row.map((v) => `"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+              const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `sources-${new Date().toISOString().slice(0,10)}.csv`;
+              a.click();
+            }}
+            onRowEdit={(row: any) => handleViewSource(row)}
+            onRowDelete={(row: any) => handleDeleteSource(row.id)}
+          />
         </CardContent>
       </Card>
 
