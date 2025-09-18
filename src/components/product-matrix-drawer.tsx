@@ -17,6 +17,9 @@ import {
   Package,
   TrendingUp
 } from "lucide-react";
+import { Maximize, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { formatPrice } from "@/lib/normalize";
 import { formatDistanceToNow } from "date-fns";
@@ -35,6 +38,7 @@ export function ProductMatrixDrawer({
 }: ProductMatrixDrawerProps) {
   const [offers, setOffers] = useState<any[]>([]);
   const [suppliers, setSuppliers] = useState<any[]>([]);
+  const navigate = useNavigate();
 
   // Load data from Supabase when dialog opens
   useEffect(() => {
@@ -115,10 +119,35 @@ export function ProductMatrixDrawer({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Package className="h-5 w-5" />
-            {productOffer.product.name}
-          </DialogTitle>
+          <div className="flex items-center justify-between gap-2">
+            <DialogTitle className="flex items-center gap-2">
+              <Package className="h-5 w-5" />
+              {productOffer.product.name}
+            </DialogTitle>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  onOpenChange(false)
+                  navigate(`/app/products/${productOffer.product.id}`)
+                }}
+                aria-label="Maximize"
+                className="rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              >
+                <Maximize className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => onOpenChange(false)}
+                aria-label="Close"
+                className="rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
         </DialogHeader>
         
         <div className="space-y-6 py-6">

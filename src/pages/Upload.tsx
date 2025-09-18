@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Upload as UploadIcon, FileText, Table } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { read as readXlsx, utils as xlsxUtils } from "xlsx";
 
 interface ParsedData {
   headers: string[];
@@ -23,75 +24,132 @@ export default function Upload() {
   const [parsedData, setParsedData] = useState<ParsedData | null>(null);
   const [textInput, setTextInput] = useState("");
 
-  // Robust-ish CSV/TSV parsing (handles quoted fields)
-  const parseDelimitedLine = (line: string, delimiter: string): string[] => {
-    const result: string[] = [];
-    let current = "";
+  // Utilities: robust CSV/TSV parsing with BOM removal, quoted newlines, delimiter detection
+  const stripBOM = (text: string) => (text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
+
+  const detectDelimiterFromFirstRecord = (text: string): string => {
+    const src = stripBOM(text).replace(/\r\n/g, "\n");
     let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"') {
-        if (inQuotes && line[i + 1] === '"') {
-          current += '"';
-          i++; // skip escaped quote
+    let i = 0;
+    let tabCount = 0;
+    let commaCount = 0;
+    let semiCount = 0;
+    while (i < src.length) {
+      const ch = src[i];
+      if (ch === '"') {
+        if (inQuotes && src[i + 1] === '"') {
+          i += 2;
+          continue;
+        }
+        inQuotes = !inQuotes;
+        i++;
+        continue;
+      }
+      if (!inQuotes && (ch === "\n")) break;
+      if (!inQuotes) {
+        if (ch === "\t") tabCount++;
+        else if (ch === ",") commaCount++;
+        else if (ch === ";") semiCount++;
+      }
+      i++;
+    }
+    if (tabCount >= commaCount && tabCount >= semiCount) return "\t";
+    if (commaCount >= semiCount) return ",";
+    return ";";
+  };
+
+  const parseDelimitedText = (text: string, delimiter?: string): string[][] => {
+    const src = stripBOM((text || "").replace(/\r\n/g, "\n"));
+    const delim = delimiter || detectDelimiterFromFirstRecord(src);
+    const rows: string[][] = [];
+    let currentField = "";
+    let currentRow: string[] = [];
+    let inQuotes = false;
+    for (let i = 0; i < src.length; i++) {
+      const ch = src[i];
+      if (ch === '"') {
+        if (inQuotes && src[i + 1] === '"') {
+          currentField += '"';
+          i++;
         } else {
           inQuotes = !inQuotes;
         }
-      } else if (char === delimiter && !inQuotes) {
-        result.push(current);
-        current = "";
-      } else {
-        current += char;
+        continue;
       }
+      if (!inQuotes && ch === delim) {
+        currentRow.push(currentField);
+        currentField = "";
+        continue;
+      }
+      if (!inQuotes && ch === "\n") {
+        currentRow.push(currentField);
+        rows.push(currentRow);
+        currentRow = [];
+        currentField = "";
+        continue;
+      }
+      currentField += ch;
     }
-    result.push(current);
-    return result;
+    // push last field/row
+    currentRow.push(currentField);
+    rows.push(currentRow);
+    // filter out empty rows
+    return rows.filter(r => r.some(cell => String(cell).trim().length > 0));
   };
 
-  // Minimal CSV/TSV parser for pasted text and simple files
-  const parseTextToData = (text: string, fileName?: string): ParsedData => {
-    const raw = (text || "").replace(/\r\n/g, "\n").trim();
-    const lines = raw.split("\n").filter((l) => l.trim().length > 0);
-    if (lines.length === 0) {
-      return { headers: [], rows: [], fileName };
-    }
-    // Detect delimiter: prefer tab, then comma, then semicolon
-    const headerLine = lines[0];
-    const tabCount = (headerLine.match(/\t/g) || []).length;
-    const commaCount = (headerLine.match(/,/g) || []).length;
-    const semiCount = (headerLine.match(/;/g) || []).length;
-    const delimiter = tabCount >= commaCount && tabCount >= semiCount
-      ? "\t"
-      : commaCount >= semiCount
-        ? ","
-        : ";";
+  const coerceCell = (cellRaw: string): string | number => {
+    const trimmed = (cellRaw ?? "").trim();
+    if (trimmed === "") return "";
+    // remove common currency/thousands symbols before numeric check
+    const normalized = trimmed.replace(/[$£€%\s]/g, "");
+    const maybeNum = Number(normalized.replace(/,/g, ""));
+    return isFinite(maybeNum) ? maybeNum : trimmed;
+  };
 
-    const headerTokens = parseDelimitedLine(headerLine, delimiter).map((h) => h.trim());
-    // If only a single line was provided, treat it as data (no headers)
-    if (lines.length === 1) {
-      const headers = headerTokens.map((_, idx) => `Column ${idx + 1}`);
+  const parseTextToData = (text: string, fileName?: string): ParsedData => {
+    const rows = parseDelimitedText(text);
+    if (rows.length === 0) return { headers: [], rows: [], fileName };
+    if (rows.length === 1) {
+      const headers = rows[0].map((_, idx) => `Column ${idx + 1}`);
       const row: Record<string, string | number> = {};
-      headers.forEach((header, index) => {
-        const cellRaw = (headerTokens[index] ?? "").trim();
-        const maybeNum = Number(cellRaw.replace(/,/g, ""));
-        row[header] = isFinite(maybeNum) && cellRaw !== "" ? maybeNum : cellRaw;
+      headers.forEach((header, idx) => {
+        row[header] = coerceCell(String(rows[0][idx] ?? ""));
       });
       return { headers, rows: [row], fileName };
     }
-
-    const headers = headerTokens;
-    const rows = lines.slice(1).map((line) => {
-      const values = parseDelimitedLine(line, delimiter);
-      const row: Record<string, string | number> = {};
-      headers.forEach((header, index) => {
-        const cellRaw = (values[index] ?? "").trim();
-        // Try to coerce numeric
-        const maybeNum = Number(cellRaw.replace(/,/g, ""));
-        row[header] = isFinite(maybeNum) && cellRaw !== "" ? maybeNum : cellRaw;
+    const headerTokens = rows[0].map((h) => String(h).trim());
+    const headers = headerTokens.map((h, idx) => (h === "" ? `Column ${idx + 1}` : h));
+    const records = rows.slice(1).map((vals) => {
+      const rec: Record<string, string | number> = {};
+      headers.forEach((header, idx) => {
+        rec[header] = coerceCell(String(vals[idx] ?? ""));
       });
-      return row;
+      return rec;
     });
-    return { headers, rows, fileName };
+    return { headers, rows: records, fileName };
+  };
+
+  const parseExcelFile = async (file: File): Promise<ParsedData> => {
+    const data = await file.arrayBuffer();
+    const wb = readXlsx(data, { type: "array" });
+    const sheetName = wb.SheetNames[0];
+    if (!sheetName) return { headers: [], rows: [], fileName: file.name };
+    const ws = wb.Sheets[sheetName];
+    const grid: any[][] = xlsxUtils.sheet_to_json(ws, { header: 1, defval: "" });
+    if (!grid || grid.length === 0) return { headers: [], rows: [], fileName: file.name };
+    const headerRow = grid[0] as (string | number)[];
+    const headers = headerRow.map((h, idx) => {
+      const name = String(h ?? "").trim();
+      return name === "" ? `Column ${idx + 1}` : name;
+    });
+    const records = grid.slice(1).filter(r => (r as any[]).some(c => String(c ?? "").trim().length > 0)).map((r) => {
+      const rec: Record<string, string | number> = {};
+      headers.forEach((header, idx) => {
+        rec[header] = coerceCell(String((r as any[])[idx] ?? ""));
+      });
+      return rec;
+    });
+    return { headers, rows: records, fileName: file.name };
   };
 
   const handleFileUpload = async (files: File[]) => {
@@ -101,19 +159,16 @@ export default function Upload() {
       return;
     }
     try {
-      // Only parse CSV/TSV/plain text. For PDFs/Excels, ask user to paste/export CSV.
       const nameLower = (file.name || "").toLowerCase();
       const typeLower = (file.type || "").toLowerCase();
-      if (nameLower.endsWith('.xlsx') || nameLower.endsWith('.xls') || typeLower.includes('spreadsheet')) {
-        toast({ title: "Excel not supported yet", description: "Please export your sheet to CSV and upload that.", variant: "destructive" });
-        return;
-      }
       if (nameLower.endsWith('.pdf') || typeLower.includes('pdf')) {
         toast({ title: "PDF parsing not supported", description: "Please paste table text or upload a CSV.", variant: "destructive" });
         return;
       }
-      const text = await file.text();
-      const parsed = parseTextToData(text, file.name);
+      const isExcel = nameLower.endsWith('.xlsx') || nameLower.endsWith('.xls') || (typeLower.includes('spreadsheet') && !nameLower.endsWith('.csv'));
+      const parsed = isExcel
+        ? await parseExcelFile(file)
+        : parseTextToData(await file.text(), file.name);
       if (parsed.rows.length === 0) {
         toast({ title: "No rows detected", description: `${file.name}: Could not detect any data rows. Try pasting text or ensure CSV/TSV format.`, variant: "destructive" });
         return;
@@ -288,7 +343,7 @@ export default function Upload() {
                 <div className="text-center space-y-4">
                   <FileDropzone onFileDrop={handleFileUpload} />
                   <p className="text-sm text-muted-foreground">
-                    Supported formats: PDF, CSV, Excel files
+                    Supported formats: CSV/TSV, Excel (XLSX/XLS), and text files
                   </p>
                 </div>
               </TabsContent>
@@ -296,7 +351,7 @@ export default function Upload() {
               <TabsContent value="paste" className="space-y-4">
                 <div className="space-y-4">
                   <Textarea
-                    placeholder="Paste your tab-separated or CSV data here..."
+                    placeholder="Paste your CSV (comma-separated), TSV (tab-separated), or semicolon-separated data here..."
                     value={textInput}
                     onChange={(e) => setTextInput(e.target.value)}
                     className="min-h-[200px]"

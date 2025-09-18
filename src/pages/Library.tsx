@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -12,6 +12,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { DataTable } from "@/components/data-table";
+import { Search } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { 
@@ -21,7 +23,9 @@ import {
   FileText, 
   Table as TableIcon,
   Mail,
-  File
+  File,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { formatDistanceToNow } from "date-fns";
@@ -43,9 +47,11 @@ const statusColors = {
 export default function Library() {
   const { toast } = useToast();
   const [sources, setSources] = useState<any[]>([]);
-  const [sortOrder, setSortOrder] = useState<"latest" | "oldest">("latest");
+  const [sortKey, setSortKey] = useState<"name" | "rows" | "uploaded">("uploaded");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [selectedSource, setSelectedSource] = useState<Source | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     const load = async () => {
@@ -125,11 +131,22 @@ export default function Library() {
     );
   }
 
-  const sortedSources = [...sources].sort((a, b) => {
-    const ta = new Date(a.uploadedAt).getTime();
-    const tb = new Date(b.uploadedAt).getTime();
-    return sortOrder === "latest" ? tb - ta : ta - tb;
-  });
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return sources;
+    return sources.filter((s) => s.name.toLowerCase().includes(q));
+  }, [sources, query]);
+
+  const sortedSources = useMemo(() => {
+    const sorted = [...filtered].sort((a, b) => {
+      if (sortKey === "name") return a.name.localeCompare(b.name);
+      if (sortKey === "rows") return a.rowCount - b.rowCount;
+      const ta = (() => { const d = a.uploadedAt ? new Date(a.uploadedAt) : null; return d && !isNaN(d.getTime()) ? d.getTime() : 0; })();
+      const tb = (() => { const d = b.uploadedAt ? new Date(b.uploadedAt) : null; return d && !isNaN(d.getTime()) ? d.getTime() : 0; })();
+      return ta - tb;
+    });
+    return sortDir === "asc" ? sorted : sorted.reverse();
+  }, [filtered, sortKey, sortDir]);
 
   return (
     <div className="container mx-auto py-6 space-y-6">
@@ -141,88 +158,83 @@ export default function Library() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as any)}>
+          <div className="relative w-full max-w-sm">
+            <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input placeholder="Search data sources..." value={query} onChange={(e) => setQuery(e.target.value)} className="pl-8" />
+          </div>
+          <Select value={sortKey} onValueChange={(v) => setSortKey(v as any)}>
             <SelectTrigger className="w-40">
               <SelectValue placeholder="Sort by" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="latest">Latest first</SelectItem>
-              <SelectItem value="oldest">Oldest first</SelectItem>
+              <SelectItem value="name">Name (A–Z)</SelectItem>
+              <SelectItem value="rows">Row count</SelectItem>
+              <SelectItem value="uploaded">Uploaded</SelectItem>
             </SelectContent>
           </Select>
+          <Button variant="outline" size="icon" onClick={() => setSortDir(d => d === "asc" ? "desc" : "asc")}>{sortDir === "asc" ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}</Button>
         </div>
       </div>
 
-      <Card className="table-container">
+      <Card className="table-container data-grid-compact">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Database className="h-5 w-5" />
-            Data Sources ({sources.length})
+            Data Sources ({sortedSources.length})
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader className="table-header">
-              <TableRow>
-                <TableHead>#</TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Rows</TableHead>
-                <TableHead>Uploaded</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {sortedSources.map((source, idx) => {
-                const IconComponent = sourceIcons[source.type];
-                return (
-                  <TableRow key={source.id} className="table-row">
-                    <TableCell className="w-10 text-xs text-muted-foreground">{idx + 1}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <IconComponent className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-medium">{source.name}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">
-                        {source.type.toUpperCase()}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={statusColors[source.status]}>
-                        {source.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{source.rowCount.toLocaleString()}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {formatDistanceToNow(new Date(source.uploadedAt), { addSuffix: true })}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleViewSource(source)}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDeleteSource(source.id)}
-                          className="text-destructive hover:text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+          <DataTable
+            columns={[
+              {
+                accessorKey: "name",
+                header: "Name",
+                cell: ({ row }: any) => {
+                  const Icon = sourceIcons[row.original.type as keyof typeof sourceIcons] || File;
+                  return (
+                    <div className="flex items-center gap-2">
+                      <Icon className="h-4 w-4 text-muted-foreground" />
+                      <span className="font-medium">{row.original.name}</span>
+                    </div>
+                  );
+                },
+              },
+              { accessorKey: "type", header: "Type", cell: ({ row }: any) => <Badge variant="outline">{row.original.type.toUpperCase()}</Badge> },
+              { accessorKey: "status", header: "Status", cell: ({ row }: any) => <Badge variant={statusColors[row.original.status]}>{row.original.status}</Badge> },
+              { accessorKey: "rowCount", header: "Rows" },
+              { accessorKey: "uploadedAt", header: "Uploaded", cell: ({ row }: any) => {
+                const d = row.original.uploadedAt ? new Date(row.original.uploadedAt) : null;
+                const text = d && !isNaN(d.getTime()) ? formatDistanceToNow(d, { addSuffix: true }) : "Never";
+                return <span className="text-xs text-muted-foreground">{text}</span>;
+              } },
+            ]}
+            data={sortedSources}
+            searchKey="name"
+            getRowId={(row: any) => row.id}
+            onBulkDelete={async (rows: any[]) => {
+              const ids = rows.map((r) => r.id);
+              if (!ids.length) return;
+              const { error: offersErr } = await supabase.from("offers").delete().in("source_id", ids);
+              if (offersErr) return;
+              const { error: srcErr } = await supabase.from("sources").delete().in("id", ids);
+              if (srcErr) return;
+              const { data } = await supabase.from("sources").select("id,name,type,status,row_count,uploaded_at,mapping");
+              setSources((data || []).map(s => ({ id: s.id, name: s.name, type: s.type, status: s.status, rowCount: s.row_count, uploadedAt: s.uploaded_at, mapping: s.mapping || {} })));
+            }}
+            onBulkExportCsv={(rows: any[]) => {
+              const header = ["Name","Type","Status","Rows","Uploaded"];
+              const lines = rows.map((r) => [r.name, r.type, r.status, String(r.rowCount), r.uploadedAt]);
+              const csv = [header, ...lines].map((row) => row.map((v) => `"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+              const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `sources-${new Date().toISOString().slice(0,10)}.csv`;
+              a.click();
+            }}
+            onRowEdit={(row: any) => handleViewSource(row)}
+            onRowDelete={(row: any) => handleDeleteSource(row.id)}
+          />
         </CardContent>
       </Card>
 
@@ -234,7 +246,7 @@ export default function Library() {
               <SheetHeader>
                 <SheetTitle className="flex items-center gap-2">
                   {(() => {
-                    const IconComponent = sourceIcons[selectedSource.type];
+                    const IconComponent = sourceIcons[selectedSource.type as keyof typeof sourceIcons] || File;
                     return <IconComponent className="h-5 w-5" />;
                   })()}
                   {selectedSource.name}
@@ -266,7 +278,7 @@ export default function Library() {
                   <div>
                     <label className="text-sm font-medium">Uploaded</label>
                     <p className="text-sm text-muted-foreground">
-                      {formatDistanceToNow(new Date(selectedSource.uploadedAt), { addSuffix: true })}
+                      {(() => { const d = selectedSource.uploadedAt ? new Date(selectedSource.uploadedAt) : null; return d && !isNaN(d.getTime()) ? formatDistanceToNow(d, { addSuffix: true }) : "Never"; })()}
                     </p>
                   </div>
                 </div>

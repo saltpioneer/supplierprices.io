@@ -13,6 +13,7 @@ import Library from "@/pages/Library";
 import Suppliers from "@/pages/Suppliers";
 import Settings from "@/pages/Settings";
 import ProductDetail from "@/pages/ProductDetail";
+import SupplierDetail from "@/pages/SupplierDetail";
 
 const queryClient = new QueryClient();
 
@@ -31,6 +32,7 @@ const App = () => {
                 <Route path="upload" element={<Upload />} />
                 <Route path="library" element={<Library />} />
                 <Route path="suppliers" element={<Suppliers />} />
+                <Route path="suppliers/:id" element={<SupplierDetail />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="products/:id" element={<ProductDetail />} />
               </Route>

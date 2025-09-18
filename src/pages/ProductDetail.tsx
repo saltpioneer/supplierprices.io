@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,6 +20,7 @@ import {
   CheckCircle,
   XCircle
 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import { getProducts, getOffers, getSuppliers } from "@/lib/storage";
 import { formatPrice } from "@/lib/normalize";
 import { formatDistanceToNow } from "date-fns";
@@ -29,9 +30,39 @@ export default function ProductDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   
-  const [products] = useState(() => getProducts());
-  const [offers] = useState(() => getOffers());
-  const [suppliers] = useState(() => getSuppliers());
+  const [products, setProducts] = useState(() => getProducts());
+  const [offers, setOffers] = useState(() => getOffers());
+  const [suppliers, setSuppliers] = useState(() => getSuppliers());
+
+  useEffect(() => {
+    const load = async () => {
+      const [p, o, s] = await Promise.all([
+        supabase.from("products").select("id,name,category,unit").eq("id", id!),
+        supabase.from("offers").select("id,product_id,supplier_id,normalized_price_per_unit,normalized_unit,raw_price,raw_currency,pack_qty,pack_unit,updated_at,in_stock").eq("product_id", id!),
+        supabase.from("suppliers").select("id,name,contact,tags"),
+      ]);
+      if (!p.error && p.data && p.data.length) setProducts((prev) => {
+        const others = prev.filter((x) => x.id !== id);
+        return [...others, p.data[0]];
+      });
+      if (!o.error && o.data) setOffers(o.data.map((r) => ({
+        id: r.id,
+        productId: r.product_id,
+        supplierId: r.supplier_id,
+        normalizedPricePerUnit: Number(r.normalized_price_per_unit),
+        normalizedUnit: r.normalized_unit,
+        rawPrice: Number(r.raw_price),
+        rawCurrency: r.raw_currency,
+        packQty: r.pack_qty || undefined,
+        packUnit: r.pack_unit || undefined,
+        sourceId: "", // not used here
+        updatedAt: r.updated_at,
+        inStock: r.in_stock ?? undefined,
+      })));
+      if (!s.error && s.data) setSuppliers(s.data);
+    };
+    if (id) load();
+  }, [id]);
 
   const product = products.find(p => p.id === id);
   

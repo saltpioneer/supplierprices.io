@@ -9,6 +9,7 @@ const STORAGE_KEYS = {
   sources: "price-aggregator-sources",
   settings: "price-aggregator-settings",
   savedViews: "price-aggregator-saved-views",
+  favorites: "price-aggregator-favorite-products",
 } as const;
 
 // Generic storage functions
@@ -147,6 +148,32 @@ export function addSavedView(view: SavedView): void {
 export function deleteSavedView(viewId: string): void {
   const views = getSavedViews();
   setSavedViews(views.filter(v => v.id !== viewId));
+}
+
+// Favorites (product pinning)
+export function getFavoriteProductIds(): string[] {
+  return getFromStorage<string[]>(STORAGE_KEYS.favorites, []);
+}
+
+export function setFavoriteProducts(ids: string[]): void {
+  setToStorage<string[]>(STORAGE_KEYS.favorites, ids);
+}
+
+export function isProductFavorited(productId: string): boolean {
+  const ids = getFavoriteProductIds();
+  return ids.includes(productId);
+}
+
+export function toggleFavoriteProduct(productId: string): string[] {
+  const ids = new Set(getFavoriteProductIds());
+  if (ids.has(productId)) {
+    ids.delete(productId);
+  } else {
+    ids.add(productId);
+  }
+  const next = Array.from(ids);
+  setFavoriteProducts(next);
+  return next;
 }
 
 // Reset all data

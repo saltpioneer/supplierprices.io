@@ -3,7 +3,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { 
@@ -16,10 +15,12 @@ import {
 } from "lucide-react";
 import { getSettings, setSettings, resetDemoData } from "@/lib/storage";
 import type { Settings } from "@/lib/types";
+import { useTheme } from "@/components/theme-provider";
 
 export default function Settings() {
   const { toast } = useToast();
   const [settings, setSettingsState] = useState<Settings>(() => getSettings());
+  const { theme, setTheme } = useTheme();
 
   const handleSettingChange = (key: keyof Settings, value: any) => {
     const newSettings = { ...settings, [key]: value };
@@ -83,20 +84,6 @@ export default function Settings() {
               All prices will be normalized to this currency
             </p>
           </div>
-
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label>Tax Included</Label>
-              <p className="text-xs text-muted-foreground">
-                Include GST/VAT in price calculations
-              </p>
-            </div>
-            <Switch
-              checked={settings.taxIncluded}
-              onCheckedChange={(checked) => handleSettingChange("taxIncluded", checked)}
-            />
-          </div>
-
           <div>
             <Label htmlFor="roundingPrecision">Rounding Precision</Label>
             <Select
@@ -131,23 +118,22 @@ export default function Settings() {
         </CardHeader>
         <CardContent className="space-y-6">
           <div>
-            <Label htmlFor="density">Table Density</Label>
+            <Label htmlFor="appearance">Appearance</Label>
             <Select
-              value={settings.density}
-              onValueChange={(value: "compact" | "comfortable") => 
-                handleSettingChange("density", value)
-              }
+              value={theme}
+              onValueChange={(value: "light" | "dark" | "system") => setTheme(value)}
             >
               <SelectTrigger className="w-48">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="compact">Compact</SelectItem>
-                <SelectItem value="comfortable">Comfortable</SelectItem>
+                <SelectItem value="light">Light</SelectItem>
+                <SelectItem value="dark">Dark</SelectItem>
+                <SelectItem value="system">System</SelectItem>
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground mt-1">
-              Choose between dense or spacious table layouts
+              Choose light or dark theme
             </p>
           </div>
         </CardContent>
