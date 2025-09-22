@@ -2,9 +2,10 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AppShell } from "@/components/app-shell";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
 
 // Import pages
 import Dashboard from "@/pages/Dashboard";
@@ -13,7 +14,7 @@ import Library from "@/pages/Library";
 import Suppliers from "@/pages/Suppliers";
 import Settings from "@/pages/Settings";
 import ProductDetail from "@/pages/ProductDetail";
-import SupplierDetail from "@/pages/SupplierDetail";
+import Login from "@/pages/Login";
 
 const queryClient = new QueryClient();
 
@@ -24,21 +25,21 @@ const App = () => {
         <TooltipProvider>
           <Toaster />
           <Sonner />
-          <BrowserRouter>
+          <HashRouter>
             <Routes>
               <Route path="/" element={<Navigate to="/app/dashboard" replace />} />
-              <Route path="/app" element={<AppShell />}>
+              <Route path="/login" element={<Login />} />
+              <Route path="/app" element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
                 <Route path="dashboard" element={<Dashboard />} />
                 <Route path="upload" element={<Upload />} />
                 <Route path="library" element={<Library />} />
                 <Route path="suppliers" element={<Suppliers />} />
-                <Route path="suppliers/:id" element={<SupplierDetail />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="products/:id" element={<ProductDetail />} />
               </Route>
               <Route path="*" element={<Navigate to="/app/dashboard" replace />} />
             </Routes>
-          </BrowserRouter>
+          </HashRouter>
         </TooltipProvider>
       </ThemeProvider>
     </QueryClientProvider>

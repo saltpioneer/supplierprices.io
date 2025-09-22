@@ -1,3 +1,15 @@
+## Auth (optional)
+
+Set these in `.env.local`:
+
+```
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your_anon_key
+VITE_AUTH_REQUIRED=false
+```
+
+When `VITE_AUTH_REQUIRED=true`, routes under `/app` require sign-in. Use `/login` for OAuth (Google). A local mock is used when env vars are missing to avoid blocking development.
+
 # SupplierPrices.io – Price Aggregation Dashboard
 
 Modern React + Vite app for aggregating supplier prices with Supabase as the backend and shadcn/ui for the component system.

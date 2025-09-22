@@ -30,10 +30,37 @@ if (!SUPABASE_PUBLISHABLE_KEY) {
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-  auth: {
-    storage: localStorage,
-    persistSession: true,
-    autoRefreshToken: true,
-  }
-});
+const isValidUrl = /^https?:\/\//i.test(SUPABASE_URL);
+const isValidKey = !!SUPABASE_PUBLISHABLE_KEY && SUPABASE_PUBLISHABLE_KEY !== "placeholder_key";
+
+export const supabase = isValidUrl && isValidKey
+  ? createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+      auth: {
+        storage: localStorage,
+        persistSession: true,
+        autoRefreshToken: true,
+      }
+    })
+  : {
+      from: () => ({
+        select: () => Promise.resolve({ data: [], error: null }),
+        insert: () => Promise.resolve({ data: [], error: null }),
+        update: () => Promise.resolve({ data: [], error: null }),
+        delete: () => Promise.resolve({ data: [], error: null }),
+      }),
+      auth: {
+        getUser: () => {
+          const raw = localStorage.getItem("mock_auth_user");
+          return Promise.resolve({ data: raw ? { user: JSON.parse(raw) } : null, error: null });
+        },
+        signOut: async () => {
+          localStorage.removeItem("mock_auth_user");
+          return { error: null } as any;
+        },
+        signInWithOAuth: async ({ provider }: any) => {
+          localStorage.setItem("mock_auth_user", JSON.stringify({ id: "mock-user", provider }));
+          return { data: { url: "/#/app/dashboard" }, error: null } as any;
+        },
+        onAuthStateChange: (callback: any) => ({ data: { subscription: { unsubscribe: () => {} } }, error: null }),
+      }
+    } as any;

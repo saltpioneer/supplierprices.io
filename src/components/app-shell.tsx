@@ -298,8 +298,8 @@ export function AppShell() {
             </Button>
           </div>
 
-          {/* Right: Base currency */}
-          <div className="ml-auto">
+          {/* Right: Base currency + Sign out */}
+          <div className="ml-auto flex items-center gap-2">
             <Select
               value={baseCurrency}
               onValueChange={(v) => {
@@ -318,6 +318,7 @@ export function AppShell() {
                 <SelectItem value="GBP">GBP</SelectItem>
               </SelectContent>
             </Select>
+            <Button variant="outline" size="sm" onClick={async () => { try { await (supabase as any).auth.signOut(); } catch {} localStorage.removeItem("mock_auth_user"); window.location.href = "/#/login"; }}>Sign out</Button>
           </div>
         </header>
 
