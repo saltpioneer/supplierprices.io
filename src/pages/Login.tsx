@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
@@ -8,6 +9,9 @@ export default function Login() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const next = params.get("next") || "/app/dashboard";
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     // If already signed in (or mock), redirect
@@ -31,6 +35,21 @@ export default function Login() {
     }
   };
 
+  const loginPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const { error } = await (supabase as any).auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      navigate(next, { replace: true });
+    } catch (err) {
+      console.error(err);
+      alert("Login failed. Check credentials.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center">
       <Card className="w-full max-w-sm">
@@ -38,7 +57,13 @@ export default function Login() {
           <CardTitle>Sign in</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <Button className="w-full" onClick={loginGoogle}>Continue with Google</Button>
+          <form className="space-y-2" onSubmit={loginPassword}>
+            <Input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required />
+            <Input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} required />
+            <Button className="w-full" type="submit" disabled={loading}>{loading ? "Signing in..." : "Sign in"}</Button>
+          </form>
+          <div className="relative text-center text-xs text-muted-foreground"><span className="px-2 bg-background">OR</span></div>
+          <Button variant="outline" className="w-full" onClick={loginGoogle}>Sign in with Google</Button>
           <div className="text-xs text-muted-foreground text-center">
             Auth is optional. Set VITE_AUTH_REQUIRED=true to enforce.
           </div>

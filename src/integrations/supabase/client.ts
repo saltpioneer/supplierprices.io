@@ -53,6 +53,10 @@ export const supabase = isValidUrl && isValidKey
           const raw = localStorage.getItem("mock_auth_user");
           return Promise.resolve({ data: raw ? { user: JSON.parse(raw) } : null, error: null });
         },
+        signInWithPassword: async ({ email }: any) => {
+          localStorage.setItem("mock_auth_user", JSON.stringify({ id: "mock-user", email }));
+          return { data: { user: { id: "mock-user" } }, error: null } as any;
+        },
         signOut: async () => {
           localStorage.removeItem("mock_auth_user");
           return { error: null } as any;
