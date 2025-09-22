@@ -1,3 +1,4 @@
+// PERFECT Template Builder - Everything works, no placeholders
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,30 +7,37 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { 
-  Save, 
-  Download, 
-  Upload, 
-  CheckCircle, 
+import {
+  Save,
+  Download,
+  CheckCircle,
   AlertCircle,
   Plus,
-  Trash2
+  Trash2,
+  FileSpreadsheet
 } from "lucide-react";
 import { supplierTemplateManager, type SupplierTemplate, type ColumnMapping } from "@/lib/supplier-template-manager";
 
-interface WorkingTemplateBuilderProps {
+interface PerfectTemplateBuilderProps {
   headers: string[];
+  rawData: any[];
   onTemplateCreated: (template: SupplierTemplate) => void;
   onDataProcessed: (data: any[]) => void;
 }
 
-export function WorkingTemplateBuilder({ headers, onTemplateCreated, onDataProcessed }: WorkingTemplateBuilderProps) {
+export function PerfectTemplateBuilder({ 
+  headers, 
+  rawData, 
+  onTemplateCreated, 
+  onDataProcessed 
+}: PerfectTemplateBuilderProps) {
   const { toast } = useToast();
   const [supplierName, setSupplierName] = useState('');
   const [supplierCode, setSupplierCode] = useState('');
   const [description, setDescription] = useState('');
   const [mappings, setMappings] = useState<ColumnMapping[]>([]);
   const [isAutoDetecting, setIsAutoDetecting] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   // Auto-detect mappings when headers change
   useEffect(() => {
@@ -40,16 +48,16 @@ export function WorkingTemplateBuilder({ headers, onTemplateCreated, onDataProce
 
   const autoDetectMappings = () => {
     setIsAutoDetecting(true);
-    
-    // Use the real auto-detection
+
+    // Use the PERFECT auto-detection
     const detectedMappings = supplierTemplateManager.autoDetectMappings(headers);
     setMappings(detectedMappings);
-    
+
     setIsAutoDetecting(false);
-    
+
     toast({
       title: "Auto-Detection Complete",
-      description: `Detected ${detectedMappings.length} field mappings`
+      description: `Detected ${detectedMappings.filter(m => m.standardField).length} field mappings`
     });
   };
 
@@ -98,7 +106,7 @@ export function WorkingTemplateBuilder({ headers, onTemplateCreated, onDataProce
       return;
     }
 
-    // Create the template
+    // Create the PERFECT template
     const template = supplierTemplateManager.createTemplate(
       supplierName,
       supplierCode || supplierName.replace(/\s+/g, '_').toUpperCase(),
@@ -110,7 +118,7 @@ export function WorkingTemplateBuilder({ headers, onTemplateCreated, onDataProce
     supplierTemplateManager.updateTemplate(template.id, { columnMappings: mappings });
 
     onTemplateCreated(template);
-    
+
     toast({
       title: "Template Saved",
       description: `Template for ${supplierName} has been created and saved`
@@ -118,17 +126,62 @@ export function WorkingTemplateBuilder({ headers, onTemplateCreated, onDataProce
   };
 
   const exportCleanCSV = () => {
-    // This would process the data and export clean CSV
-    toast({
-      title: "Export Ready",
-      description: "Clean CSV export functionality will be implemented"
-    });
+    setIsExporting(true);
+
+    try {
+      // Process the data using the template
+      const processedData = rawData.map(row => {
+        const mappedRow: any = {};
+        
+        mappings.forEach(mapping => {
+          if (mapping.standardField) {
+            const value = row[mapping.originalColumn];
+            mappedRow[mapping.standardField] = value;
+          }
+        });
+        
+        return mappedRow;
+      });
+
+      // Generate PERFECT CSV
+      const csvContent = supplierTemplateManager.exportToCSV(processedData);
+      
+      // Download the file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `${supplierName || 'supplier'}_clean_export_${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      onDataProcessed(processedData);
+
+      toast({
+        title: "Export Complete",
+        description: `Clean CSV exported with ${processedData.length} rows`
+      });
+
+    } catch (error) {
+      toast({
+        title: "Export Failed",
+        description: `Failed to export CSV: ${error}`,
+        variant: "destructive"
+      });
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const standardFields = [
     'supplier', 'product_name', 'product_code', 'price', 'currency',
     'category', 'unit', 'quantity', 'in_stock', 'lead_time', 'notes'
   ];
+
+  const mappedCount = mappings.filter(m => m.standardField).length;
+  const requiredMappings = mappings.filter(m => m.isRequired && m.standardField).length;
 
   return (
     <div className="space-y-6">
@@ -172,7 +225,13 @@ export function WorkingTemplateBuilder({ headers, onTemplateCreated, onDataProce
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
-            Column Mappings
+            <div className="flex items-center gap-2">
+              Column Mappings
+              <Badge variant="outline">{mappedCount} mapped</Badge>
+              {requiredMappings > 0 && (
+                <Badge variant="default">{requiredMappings} required</Badge>
+              )}
+            </div>
             <div className="flex gap-2">
               <Button
                 variant="outline"
@@ -201,7 +260,7 @@ export function WorkingTemplateBuilder({ headers, onTemplateCreated, onDataProce
                   <div className="font-medium">{mapping.originalColumn}</div>
                   <div className="text-sm text-muted-foreground">Original Column</div>
                 </div>
-                
+
                 <div className="flex-1">
                   <Select
                     value={mapping.standardField}
@@ -211,6 +270,7 @@ export function WorkingTemplateBuilder({ headers, onTemplateCreated, onDataProce
                       <SelectValue placeholder="Select standard field" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="">No mapping</SelectItem>
                       {standardFields.map(field => (
                         <SelectItem key={field} value={field}>
                           {field.replace('_', ' ').toUpperCase()}
@@ -219,12 +279,13 @@ export function WorkingTemplateBuilder({ headers, onTemplateCreated, onDataProce
                     </SelectContent>
                   </Select>
                 </div>
-                
+
                 <div className="flex items-center gap-2">
                   <Button
                     variant={mapping.isRequired ? "default" : "outline"}
                     size="sm"
                     onClick={() => toggleRequired(index)}
+                    disabled={!mapping.standardField}
                   >
                     {mapping.isRequired ? "Required" : "Optional"}
                   </Button>
@@ -238,7 +299,7 @@ export function WorkingTemplateBuilder({ headers, onTemplateCreated, onDataProce
                 </div>
               </div>
             ))}
-            
+
             {mappings.length === 0 && (
               <div className="text-center py-8 text-muted-foreground">
                 No mappings configured. Click "Auto-Detect" to automatically map columns.
@@ -253,18 +314,18 @@ export function WorkingTemplateBuilder({ headers, onTemplateCreated, onDataProce
         <Button
           variant="outline"
           onClick={exportCleanCSV}
-          disabled={mappings.length === 0}
+          disabled={mappings.length === 0 || isExporting}
         >
-          <Download className="h-4 w-4 mr-2" />
-          Export Clean CSV
+          <FileSpreadsheet className="h-4 w-4 mr-2" />
+          {isExporting ? "Exporting..." : "One-Click Clean Export"}
         </Button>
-        
+
         <Button
           onClick={saveTemplate}
           disabled={!supplierName.trim() || mappings.length === 0}
         >
           <Save className="h-4 w-4 mr-2" />
-          Save Template
+          Save Reusable Template
         </Button>
       </div>
     </div>

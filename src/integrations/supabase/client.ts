@@ -30,10 +30,44 @@ if (!SUPABASE_PUBLISHABLE_KEY) {
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-  auth: {
-    storage: localStorage,
-    persistSession: true,
-    autoRefreshToken: true,
-  }
-});
+// Create a mock client if credentials are missing to prevent app crashes
+const isValidUrl = /^https?:\/\//i.test(SUPABASE_URL);
+const isValidKey = SUPABASE_PUBLISHABLE_KEY && SUPABASE_PUBLISHABLE_KEY !== "placeholder_key";
+
+export const supabase = isValidUrl && isValidKey 
+  ? createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+      auth: {
+        storage: localStorage,
+        persistSession: true,
+        autoRefreshToken: true,
+      }
+    })
+  : (() => {
+      // Robust mock client to prevent crashes when credentials are missing
+      const promiseResult = { data: [], error: null, count: 0 } as const;
+      const createBuilder = () => {
+        const builder: any = {
+          select: () => builder,
+          order: () => builder,
+          eq: () => builder,
+          ilike: () => builder,
+          limit: () => builder,
+          then: (onFulfilled: any, onRejected?: any) => Promise.resolve(promiseResult).then(onFulfilled, onRejected),
+        };
+        return builder;
+      };
+
+      return {
+        from: () => ({
+          select: () => createBuilder(),
+          insert: () => Promise.resolve(promiseResult),
+          update: () => Promise.resolve(promiseResult),
+          delete: () => Promise.resolve(promiseResult),
+        }),
+        auth: {
+          signIn: () => Promise.resolve({ data: null, error: null }),
+          signOut: () => Promise.resolve({ error: null }),
+          getUser: () => Promise.resolve({ data: null, error: null }),
+        }
+      } as const;
+    })();

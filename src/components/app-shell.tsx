@@ -13,7 +13,10 @@ import {
   Settings as SettingsIcon,
   HelpCircle,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  BarChart2,
+  Receipt,
+  FileText
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,10 +49,64 @@ const sidebarItems = [
     shortcut: "g l",
   },
   {
+    title: "Products",
+    href: "/app/products",
+    icon: Database,
+    shortcut: "g p",
+  },
+  {
     title: "Suppliers",
     href: "/app/suppliers",
     icon: Users,
     shortcut: "g s",
+  },
+  {
+    title: "Analytics",
+    href: "/app/analytics",
+    icon: BarChart2,
+    shortcut: "g a",
+  },
+  {
+    title: "Orders",
+    href: "/app/orders",
+    icon: Receipt,
+    shortcut: "g o",
+  },
+  {
+    title: "Sourcing",
+    href: "/app/sourcing",
+    icon: FileText,
+    shortcut: "g f",
+  },
+  {
+    title: "Customers",
+    href: "/app/customers",
+    icon: Users,
+    shortcut: "g c",
+  },
+  {
+    title: "Invoices",
+    href: "/app/invoices",
+    icon: Receipt,
+    shortcut: "g i",
+  },
+  {
+    title: "Inventory",
+    href: "/app/inventory",
+    icon: Database,
+    shortcut: "g n",
+  },
+  {
+    title: "Projects",
+    href: "/app/projects",
+    icon: FileText,
+    shortcut: "g j",
+  },
+  {
+    title: "Purchase Receipt",
+    href: "/app/purchase-receipts/new",
+    icon: Receipt,
+    shortcut: "g r",
   },
 ];
 
@@ -193,6 +250,33 @@ export function AppShell() {
             case "s":
               window.location.href = "/app/suppliers";
               break;
+                case "a":
+                  window.location.href = "/app/analytics";
+                  break;
+                case "o":
+                  window.location.href = "/app/orders";
+                  break;
+                case "f":
+                  window.location.href = "/app/sourcing";
+                  break;
+                case "p":
+                  window.location.href = "/app/products";
+                  break;
+                case "c":
+                  window.location.href = "/app/customers";
+                  break;
+                case "i":
+                  window.location.href = "/app/invoices";
+                  break;
+                case "n":
+                  window.location.href = "/app/inventory";
+                  break;
+                case "j":
+                  window.location.href = "/app/projects";
+                  break;
+                case "r":
+                  window.location.href = "/app/purchase-receipts/new";
+                  break;
             case "t":
               window.location.href = "/app/settings";
               break;

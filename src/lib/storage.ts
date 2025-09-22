@@ -1,6 +1,6 @@
 // localStorage utilities for persisting demo data
 
-import { Supplier, Product, Offer, Source, Settings, SavedView } from "./types";
+import { Supplier, Product, Offer, Source, Settings, SavedView, OrderRecord, Customer, SalesOrder, PurchaseOrder, InvoiceDoc, InventoryItem, Project, PurchaseReceiptDoc } from "./types";
 
 const STORAGE_KEYS = {
   suppliers: "price-aggregator-suppliers",
@@ -9,6 +9,14 @@ const STORAGE_KEYS = {
   sources: "price-aggregator-sources",
   settings: "price-aggregator-settings",
   savedViews: "price-aggregator-saved-views",
+  orders: "price-aggregator-orders",
+  customers: "price-aggregator-customers",
+  salesOrders: "price-aggregator-sales-orders",
+  purchaseOrders: "price-aggregator-purchase-orders",
+  invoices: "price-aggregator-invoices",
+  inventory: "price-aggregator-inventory",
+  projects: "price-aggregator-projects",
+  purchaseReceipts: "price-aggregator-purchase-receipts",
 } as const;
 
 // Generic storage functions
@@ -160,3 +168,69 @@ export function resetDemoData(): void {
 export function hasDemoData(): boolean {
   return getSuppliers().length > 0 || getProducts().length > 0 || getOffers().length > 0;
 }
+
+// Orders / Invoices
+export function getOrders(): OrderRecord[] {
+  return getFromStorage(STORAGE_KEYS.orders, []);
+}
+
+export function setOrders(orders: OrderRecord[]): void {
+  setToStorage(STORAGE_KEYS.orders, orders);
+}
+
+export function addOrder(order: OrderRecord): void {
+  const orders = getOrders();
+  setOrders([order, ...orders]);
+}
+
+export function updateOrder(id: string, updates: Partial<OrderRecord>) {
+  const orders = getOrders();
+  setOrders(orders.map(o => (o.id === id ? { ...o, ...updates } : o)));
+}
+
+// Customers
+export const getCustomers = () => getFromStorage<Customer[]>(STORAGE_KEYS.customers, []);
+export const setCustomers = (rows: Customer[]) => setToStorage(STORAGE_KEYS.customers, rows);
+export const addCustomer = (row: Customer) => setCustomers([row, ...getCustomers()]);
+export const updateCustomer = (id: string, updates: Partial<Customer>) => setCustomers(getCustomers().map(r => r.id === id ? { ...r, ...updates } : r));
+export const deleteCustomer = (id: string) => setCustomers(getCustomers().filter(r => r.id !== id));
+
+// Sales Orders
+export const getSalesOrders = () => getFromStorage<SalesOrder[]>(STORAGE_KEYS.salesOrders, []);
+export const setSalesOrders = (rows: SalesOrder[]) => setToStorage(STORAGE_KEYS.salesOrders, rows);
+export const addSalesOrder = (row: SalesOrder) => setSalesOrders([row, ...getSalesOrders()]);
+export const updateSalesOrder = (id: string, updates: Partial<SalesOrder>) => setSalesOrders(getSalesOrders().map(r => r.id === id ? { ...r, ...updates } : r));
+
+// Purchase Orders
+export const getPurchaseOrders = () => getFromStorage<PurchaseOrder[]>(STORAGE_KEYS.purchaseOrders, []);
+export const setPurchaseOrders = (rows: PurchaseOrder[]) => setToStorage(STORAGE_KEYS.purchaseOrders, rows);
+export const addPurchaseOrder = (row: PurchaseOrder) => setPurchaseOrders([row, ...getPurchaseOrders()]);
+export const updatePurchaseOrder = (id: string, updates: Partial<PurchaseOrder>) => setPurchaseOrders(getPurchaseOrders().map(r => r.id === id ? { ...r, ...updates } : r));
+
+// Invoices
+export const getInvoices = () => getFromStorage<InvoiceDoc[]>(STORAGE_KEYS.invoices, []);
+export const setInvoices = (rows: InvoiceDoc[]) => setToStorage(STORAGE_KEYS.invoices, rows);
+export const addInvoice = (row: InvoiceDoc) => setInvoices([row, ...getInvoices()]);
+export const updateInvoice = (id: string, updates: Partial<InvoiceDoc>) => setInvoices(getInvoices().map(r => r.id === id ? { ...r, ...updates } : r));
+
+// Inventory
+export const getInventory = () => getFromStorage<InventoryItem[]>(STORAGE_KEYS.inventory, []);
+export const setInventory = (rows: InventoryItem[]) => setToStorage(STORAGE_KEYS.inventory, rows);
+export const upsertInventory = (row: InventoryItem) => {
+  const list = getInventory();
+  const idx = list.findIndex(i => i.id === row.id);
+  if (idx >= 0) list[idx] = row; else list.push(row);
+  setInventory([...list]);
+};
+
+// Projects
+export const getProjects = () => getFromStorage<Project[]>(STORAGE_KEYS.projects, []);
+export const setProjects = (rows: Project[]) => setToStorage(STORAGE_KEYS.projects, rows);
+export const addProject = (row: Project) => setProjects([row, ...getProjects()]);
+export const updateProject = (id: string, updates: Partial<Project>) => setProjects(getProjects().map(r => r.id === id ? { ...r, ...updates } : r));
+
+// Purchase Receipts
+export const getPurchaseReceipts = () => getFromStorage<PurchaseReceiptDoc[]>(STORAGE_KEYS.purchaseReceipts, []);
+export const setPurchaseReceipts = (rows: PurchaseReceiptDoc[]) => setToStorage(STORAGE_KEYS.purchaseReceipts, rows);
+export const addPurchaseReceipt = (row: PurchaseReceiptDoc) => setPurchaseReceipts([row, ...getPurchaseReceipts()]);
+export const updatePurchaseReceipt = (id: string, updates: Partial<PurchaseReceiptDoc>) => setPurchaseReceipts(getPurchaseReceipts().map(r => r.id === id ? { ...r, ...updates, updatedAt: new Date().toISOString() } : r));

@@ -5,10 +5,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { FileDropzone } from "@/components/file-dropzone";
 import { ColumnMapper } from "@/components/column-mapper";
+import { AIColumnMapper } from "@/components/ai-column-mapper";
+import { DynamicColumnMapper } from "@/components/dynamic-column-mapper";
+import { DocumentAIConfig } from "@/components/document-ai-config";
 import { useToast } from "@/hooks/use-toast";
-import { Upload as UploadIcon, FileText, Table } from "lucide-react";
+import { Upload as UploadIcon, FileText, Table, AlertCircle, CheckCircle, Brain } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { parseFile, getFileTypeInfo, type ParsedFileData } from "@/lib/file-parsers";
+import { type ExtractedTable } from "@/lib/ai-table-extractor";
 
 interface ParsedData {
   headers: string[];
@@ -22,6 +27,11 @@ export default function Upload() {
   const [step, setStep] = useState<1 | 2>(1);
   const [parsedData, setParsedData] = useState<ParsedData | null>(null);
   const [textInput, setTextInput] = useState("");
+  const [uploadedFiles, setUploadedFiles] = useState<ParsedFileData[]>([]);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [extractedTables, setExtractedTables] = useState<ExtractedTable[]>([]);
+  const [useAI, setUseAI] = useState(false);
+  const [showDocumentAIConfig, setShowDocumentAIConfig] = useState(false);
 
   // Robust-ish CSV/TSV parsing (handles quoted fields)
   const parseDelimitedLine = (line: string, delimiter: string): string[] => {
@@ -95,34 +105,99 @@ export default function Upload() {
   };
 
   const handleFileUpload = async (files: File[]) => {
-    const file = files[0];
-    if (!file) {
-      toast({ title: "No file", description: "Please select a file to upload", variant: "destructive" });
+    if (files.length === 0) {
+      toast({ title: "No files", description: "Please select files to upload", variant: "destructive" });
       return;
     }
+
+    setIsProcessing(true);
+    const parsedFiles: ParsedFileData[] = [];
+    let successCount = 0;
+    let errorCount = 0;
+
     try {
-      // Only parse CSV/TSV/plain text. For PDFs/Excels, ask user to paste/export CSV.
-      const nameLower = (file.name || "").toLowerCase();
-      const typeLower = (file.type || "").toLowerCase();
-      if (nameLower.endsWith('.xlsx') || nameLower.endsWith('.xls') || typeLower.includes('spreadsheet')) {
-        toast({ title: "Excel not supported yet", description: "Please export your sheet to CSV and upload that.", variant: "destructive" });
-        return;
+      // Process each file
+      for (const file of files) {
+        try {
+          const parsed = await parseFile(file);
+          parsedFiles.push(parsed);
+          
+          if (parsed.error) {
+            errorCount++;
+            toast({ 
+              title: "File processing issue", 
+              description: `${file.name}: ${parsed.error}`, 
+              variant: "destructive" 
+            });
+          } else if (parsed.rows.length > 0) {
+            successCount++;
+          } else {
+            errorCount++;
+            toast({ 
+              title: "No data found", 
+              description: `${file.name}: Could not extract data`, 
+              variant: "destructive" 
+            });
+          }
+        } catch (err: any) {
+          errorCount++;
+          parsedFiles.push({
+            headers: [],
+            rows: [],
+            fileName: file.name,
+            fileType: 'unknown',
+            error: err?.message || String(err)
+          });
+        }
       }
-      if (nameLower.endsWith('.pdf') || typeLower.includes('pdf')) {
-        toast({ title: "PDF parsing not supported", description: "Please paste table text or upload a CSV.", variant: "destructive" });
-        return;
+
+      setUploadedFiles(parsedFiles);
+      
+      // If we have at least one successful file with data, proceed to step 2
+      const successfulFiles = parsedFiles.filter(f => !f.error && f.rows.length > 0);
+      if (successfulFiles.length > 0) {
+        const firstFile = successfulFiles[0];
+        
+        // Check if this file has AI-extracted tables
+        if (firstFile.extractedTables && firstFile.extractedTables.length > 0) {
+          setExtractedTables(firstFile.extractedTables);
+          setUseAI(true);
+        } else {
+          // Use traditional column mapping
+          setParsedData({
+            headers: firstFile.headers,
+            rows: firstFile.rows,
+            fileName: firstFile.fileName
+          });
+          setUseAI(false);
+        }
+        setStep(2);
       }
-      const text = await file.text();
-      const parsed = parseTextToData(text, file.name);
-      if (parsed.rows.length === 0) {
-        toast({ title: "No rows detected", description: `${file.name}: Could not detect any data rows. Try pasting text or ensure CSV/TSV format.`, variant: "destructive" });
-        return;
+
+      // Show summary toast
+      if (successCount > 0 && errorCount === 0) {
+        toast({ 
+          title: "Files processed successfully", 
+          description: `Successfully processed ${successCount} file(s)` 
+        });
+      } else if (successCount > 0 && errorCount > 0) {
+        toast({ 
+          title: "Partial success", 
+          description: `Processed ${successCount} file(s), ${errorCount} had issues`,
+          variant: "destructive"
+        });
+      } else {
+        toast({ 
+          title: "Processing failed", 
+          description: `Could not process any files. Check file formats and try again.`,
+          variant: "destructive"
+        });
       }
-      setParsedData(parsed);
-      setStep(2);
-      toast({ title: "File processed", description: `Parsed ${parsed.rows.length} rows from ${file.name}` });
+
     } catch (err: any) {
-      toast({ title: "File parse failed", description: err?.message || String(err), variant: "destructive" });
+      toast({ title: "Upload failed", description: err?.message || String(err), variant: "destructive" });
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -253,15 +328,31 @@ export default function Upload() {
         <div>
           <h1 className="text-3xl font-bold">Upload Price Data</h1>
           <p className="text-muted-foreground">
-            Import supplier price lists from PDF, CSV, or text formats
+            Import supplier price lists from PDF, CSV, XLSX, DOCX, and image formats with drag-and-drop support
           </p>
         </div>
-        {step === 2 && (
-          <Button variant="outline" onClick={handleBack}>
-            Back to Upload
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowDocumentAIConfig(!showDocumentAIConfig)}
+            className="flex items-center gap-2"
+          >
+            <Brain className="h-4 w-4" />
+            Document AI
           </Button>
-        )}
+          {step === 2 && (
+            <Button variant="outline" onClick={handleBack}>
+              Back to Upload
+            </Button>
+          )}
+        </div>
       </div>
+
+      {/* Document AI Configuration */}
+      {showDocumentAIConfig && (
+        <DocumentAIConfig onConfigured={() => setShowDocumentAIConfig(false)} />
+      )}
 
       {step === 1 && (
         <Card>
@@ -288,9 +379,67 @@ export default function Upload() {
                 <div className="text-center space-y-4">
                   <FileDropzone onFileDrop={handleFileUpload} />
                   <p className="text-sm text-muted-foreground">
-                    Supported formats: PDF, CSV, Excel files
+                    Supports PDF, CSV, XLSX, DOCX, and image files with drag-and-drop and bulk upload
                   </p>
                 </div>
+                
+                {/* File Processing Status */}
+                {isProcessing && (
+                  <Card>
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-2">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+                        <span className="text-sm">Processing files...</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Uploaded Files Status */}
+                {uploadedFiles.length > 0 && !isProcessing && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-sm">File Processing Results</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2">
+                        {uploadedFiles.map((file, index) => {
+                          const fileInfo = getFileTypeInfo({ name: file.fileName, type: file.fileType } as File);
+                          const hasError = !!file.error;
+                          const hasData = file.rows.length > 0;
+                          
+                          return (
+                            <div
+                              key={index}
+                              className={`flex items-center gap-3 p-2 rounded-md border ${
+                                hasError ? 'border-destructive bg-destructive/5' : 
+                                hasData ? 'border-green-200 bg-green-50' : 'border-muted'
+                              }`}
+                            >
+                              {hasError ? (
+                                <AlertCircle className="h-4 w-4 text-destructive flex-shrink-0" />
+                              ) : hasData ? (
+                                <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
+                              ) : (
+                                <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                              )}
+                              
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium truncate">{file.fileName}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {fileInfo.type} • {file.rows.length} rows
+                                </div>
+                                {file.error && (
+                                  <div className="text-xs text-destructive mt-1">{file.error}</div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
               </TabsContent>
               
               <TabsContent value="paste" className="space-y-4">
@@ -311,20 +460,63 @@ export default function Upload() {
         </Card>
       )}
 
-      {step === 2 && parsedData && (
+      {step === 2 && (
         <div className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
+                {useAI ? (
+                  <>
+                    <Brain className="h-5 w-5" />
+                    Step 2: AI-Powered Column Mapping & Ingest
+                  </>
+                ) : (
+                  <>
                 <Table className="h-5 w-5" />
                 Step 2: Map Columns & Ingest
+                  </>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <ColumnMapper
-                data={parsedData}
-                onIngest={handleIngestion}
-              />
+              {useAI && extractedTables.length > 0 ? (
+                <AIColumnMapper
+                  extractedTables={extractedTables}
+                  onMappingComplete={handleIngestion}
+                  onBack={() => setStep(1)}
+                />
+              ) : parsedData ? (
+                <DynamicColumnMapper
+                  headers={parsedData.headers}
+                  rawData={parsedData.rows}
+                  fileName={parsedData.fileName || 'uploaded_file'}
+                  onMappingComplete={(mappedData, mapping) => {
+                    // Handle the mapped data
+                    console.log('Mapped data:', mappedData);
+                    console.log('Mapping:', mapping);
+                    
+                    // Convert to the format expected by handleIngestion
+                    const mappingRecord: Record<string, string> = {};
+                    mapping.forEach(m => {
+                      if (m.originalColumn && m.customFieldName) {
+                        mappingRecord[m.customFieldName] = m.originalColumn;
+                      }
+                    });
+                    
+                    // Create a new parsedData object with mapped data
+                    const newParsedData = {
+                      headers: mapping.filter(m => m.customFieldName).map(m => m.customFieldName),
+                      rows: mappedData,
+                      fileName: parsedData.fileName
+                    };
+                    
+                    handleIngestion(mappingRecord);
+                  }}
+                  onBack={() => setStep(1)}
+                />
+              ) : (
+                <div>No data available for mapping.</div>
+              )}
             </CardContent>
           </Card>
         </div>
