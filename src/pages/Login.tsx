@@ -26,6 +26,15 @@ export default function Login() {
         navigate(next, { replace: true });
       }
     });
+    // Also listen for OAuth session restoration and navigate when available
+    const sub = (supabase as any).auth.onAuthStateChange?.((_event: any, session: any) => {
+      if (session?.user) {
+        navigate("/app/dashboard", { replace: true });
+      }
+    });
+    return () => {
+      try { sub?.data?.subscription?.unsubscribe?.(); } catch {}
+    };
   }, [navigate, next]);
 
   const loginOAuth = async (provider: 'google' | 'github' | 'azure') => {
@@ -33,7 +42,7 @@ export default function Login() {
       const mapped = provider === 'azure' ? 'azure' : provider; // supabase uses 'azure' for Microsoft
       const { data, error } = await (supabase as any).auth.signInWithOAuth({ provider: mapped, options: { redirectTo: window.location.origin + "/#/app/dashboard" } });
       if (error) throw error;
-      if (data?.url) window.location.href = data.url + `&redirect_to=${encodeURIComponent(window.location.origin + '/#/app/dashboard')}`;
+      if (data?.url) window.location.href = data.url;
     } catch (e) {
       console.error(e);
       if (!REAL_AUTH || DEV_OVERRIDE) {
