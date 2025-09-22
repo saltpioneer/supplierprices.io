@@ -19,6 +19,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { getProducts, getSuppliers } from "@/lib/storage";
+import { supabase } from "@/integrations/supabase/client";
 
 interface CommandPaletteProps {
   open: boolean;
@@ -27,8 +28,9 @@ interface CommandPaletteProps {
 
 export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const navigate = useNavigate();
-  const [products] = useState(() => getProducts());
-  const [suppliers] = useState(() => getSuppliers());
+  const [products, setProducts] = useState(() => getProducts());
+  const [suppliers, setSuppliers] = useState(() => getSuppliers());
+  const [sources, setSources] = useState<any[]>([]);
 
   const runCommand = (command: () => void) => {
     onOpenChange(false);
@@ -46,6 +48,26 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     document.addEventListener("keydown", down);
     return () => document.removeEventListener("keydown", down);
   }, [onOpenChange]);
+
+  // Load latest from Supabase for global search results
+  useEffect(() => {
+    const load = async () => {
+      const [p, s, so] = await Promise.all([
+        supabase.from("products").select("id,name,category,unit"),
+        supabase.from("suppliers").select("id,name"),
+        supabase.from("sources").select("id,name,type,uploaded_at"),
+      ]);
+      if (!p.error && p.data) setProducts(p.data.map((x: any) => ({
+        id: String(x.id),
+        name: String(x.name ?? ""),
+        category: String(x.category ?? ""),
+        unit: String(x.unit ?? "pcs"),
+      })));
+      if (!s.error && s.data) setSuppliers(s.data);
+      if (!so.error && so.data) setSources(so.data);
+    };
+    load();
+  }, []);
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>
@@ -88,7 +110,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
         {products.length > 0 && (
           <CommandGroup heading="Products">
-            {products.slice(0, 5).map((product) => (
+            {products.slice(0, 50).map((product) => (
               <CommandItem
                 key={product.id}
                 onSelect={() => runCommand(() => navigate(`/app/products/${product.id}`))}
@@ -105,13 +127,28 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
         {suppliers.length > 0 && (
           <CommandGroup heading="Suppliers">
-            {suppliers.slice(0, 5).map((supplier) => (
+            {suppliers.slice(0, 50).map((supplier) => (
               <CommandItem
                 key={supplier.id}
                 onSelect={() => runCommand(() => navigate("/app/suppliers"))}
               >
                 <Building2 className="mr-2 h-4 w-4" />
                 <span>{supplier.name}</span>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
+
+        {sources.length > 0 && (
+          <CommandGroup heading="Data Sources">
+            {sources.slice(0, 50).map((src) => (
+              <CommandItem
+                key={src.id}
+                onSelect={() => runCommand(() => navigate("/app/library"))}
+              >
+                <Database className="mr-2 h-4 w-4" />
+                <span>{src.name}</span>
+                <span className="ml-auto text-xs text-muted-foreground">source · {new Date(src.uploaded_at).toLocaleDateString()}</span>
               </CommandItem>
             ))}
           </CommandGroup>

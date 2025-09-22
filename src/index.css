@@ -142,6 +142,15 @@
   .table-row {
     @apply border-b border-table-border hover:bg-table-row-hover transition-colors;
   }
+
+  /* Compact table density tweaks */
+  .data-grid-compact .table-row {
+    @apply h-9;
+  }
+  .data-grid-compact td,
+  .data-grid-compact th {
+    @apply py-1.5 px-3;
+  }
   
   .data-grid {
     @apply text-sm;

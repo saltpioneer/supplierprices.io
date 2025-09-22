@@ -27,8 +27,20 @@ import {
   downloadCSV
 } from "@/lib/filters";
 import { formatPrice } from "@/lib/normalize";
+import { loadRates, tryConvertAmount } from "@/lib/fx";
+import { getSettings } from "@/lib/storage";
 import { formatDistanceToNow } from "date-fns";
 import type { ProductOffer, DashboardFilters } from "@/lib/types";
+import { getFavoriteProductIds, toggleFavoriteProduct, isProductFavorited } from "@/lib/storage";
+import { Star, ArrowUp, ArrowDown } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Maximize, X } from "lucide-react";
 
 export default function Dashboard() {
   const { toast } = useToast();
@@ -45,8 +57,13 @@ export default function Dashboard() {
     suppliers: [],
     inStockOnly: false,
   });
-  const [sortKey, setSortKey] = useState<string>("price");
+  const [sortKey, setSortKey] = useState<"az" | "price" | "updated" | "offers">("price");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [favoriteIds, setFavoriteIds] = useState<string[]>(() => getFavoriteProductIds());
+  const [supplierDialogOpen, setSupplierDialogOpen] = useState(false);
+  const [supplierDialog, setSupplierDialog] = useState<{ id: string; name: string; products: ProductOffer[] } | null>(null);
+  const [fxVersion, setFxVersion] = useState(0);
+  
 
   // Load data from Supabase
   const loadData = async () => {
@@ -77,6 +94,20 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadData();
+  }, []);
+
+  // Preload FX rates for base AUD
+  useEffect(() => {
+    loadRates("AUD").then(() => setFxVersion((v) => v + 1)).catch(() => {});
+  }, []);
+
+  // Re-render when settings change in localStorage (currency/precision)
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "price-aggregator-settings") setFxVersion((v) => v + 1);
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   // Listen for navigation to refresh data when coming from upload
@@ -112,18 +143,22 @@ export default function Dashboard() {
   // Apply filters
   const filteredProductOffers = useMemo(() => {
     const base = filterProductOffers(allProductOffers, filters);
-    if (sortKey === "price") {
-      return [...base].sort((a, b) =>
-        sortDir === "asc"
-          ? a.bestOffer.normalizedPricePerUnit - b.bestOffer.normalizedPricePerUnit
-          : b.bestOffer.normalizedPricePerUnit - a.bestOffer.normalizedPricePerUnit
-      );
-    }
-    if (sortKey === "updated") {
-      return [...base].sort((a, b) => (sortDir === "asc" ? a.lastUpdated.localeCompare(b.lastUpdated) : b.lastUpdated.localeCompare(a.lastUpdated)));
-    }
-    return base;
-  }, [allProductOffers, filters, sortKey, sortDir]);
+    // sort favorites to the top (strict pinning)
+    const withFavFirst = [...base].sort((a, b) => {
+      const af = favoriteIds.includes(a.product.id);
+      const bf = favoriteIds.includes(b.product.id);
+      if (af === bf) return 0;
+      return af ? -1 : 1;
+    });
+    const sorted = [...withFavFirst].sort((a, b) => {
+      if (sortKey === "az") return a.product.name.localeCompare(b.product.name);
+      if (sortKey === "price") return a.bestOffer.normalizedPricePerUnit - b.bestOffer.normalizedPricePerUnit;
+      if (sortKey === "updated") return new Date(a.lastUpdated).getTime() - new Date(b.lastUpdated).getTime();
+      // offers
+      return a.totalOffers - b.totalOffers;
+    });
+    return sortDir === "asc" ? sorted : sorted.reverse();
+  }, [allProductOffers, filters, sortKey, sortDir, favoriteIds, fxVersion]);
 
   const categories = useMemo(() => getUniqueCategories(
     products.map(p => ({ id: p.id, name: p.name, category: p.category, unit: p.unit }))
@@ -157,19 +192,34 @@ export default function Dashboard() {
     setMatrixOpen(true);
   };
 
+  const toggleFavorite = (productId: string) => {
+    const next = toggleFavoriteProduct(productId);
+    setFavoriteIds(next);
+  };
+
+  const openSupplierProducts = (supplierId: string, supplierName: string) => {
+    // Build product list for supplier from allProductOffers
+    const productsForSupplier = allProductOffers.filter(po => po.bestSupplier.id === supplierId);
+    setSupplierDialog({ id: supplierId, name: supplierName, products: productsForSupplier });
+    setSupplierDialogOpen(true);
+  };
+
   // Table columns
   const columns = [
-    {
-      id: "rowNumber",
-      header: "#",
-      cell: ({ row }: any) => <span className="text-xs text-muted-foreground">{Number(row.id) + 1}</span>,
-    },
     {
       accessorKey: "product.name",
       header: "Product",
       cell: ({ row }: any) => (
-        <div className="font-medium text-sm">
-          {row.original.product.name}
+        <div className="flex items-center gap-2">
+          {favoriteIds.includes(row.original.product.id) && (
+            <Star className="h-3.5 w-3.5 fill-yellow-500 text-yellow-500" />
+          )}
+          <button
+            className="font-medium text-sm underline-offset-2 hover:underline"
+            onClick={() => handleViewMatrix(row.original)}
+          >
+            {row.original.product.name}
+          </button>
         </div>
       ),
     },
@@ -191,21 +241,34 @@ export default function Dashboard() {
       accessorKey: "bestSupplier.name",
       header: "Best Supplier",
       cell: ({ row }: any) => (
-        <div className="font-medium text-sm">
+        <button
+          className="font-medium text-sm underline-offset-2 hover:underline"
+          onClick={() => openSupplierProducts(row.original.bestSupplier.id, row.original.bestSupplier.name)}
+        >
           {row.original.bestSupplier.name}
-        </div>
+        </button>
       ),
     },
     {
       accessorKey: "bestOffer.normalizedPricePerUnit",
       header: "Best Price",
       cell: ({ row }: any) => (
-        <div className="price-highlight text-sm">
-          {formatPrice(row.original.bestOffer.normalizedPricePerUnit)}
-          <span className="text-xs text-muted-foreground ml-1">
-            / {row.original.bestOffer.normalizedUnit}
-          </span>
-        </div>
+        (() => {
+          const s = getSettings();
+          const converted = tryConvertAmount(row.original.bestOffer.normalizedPricePerUnit, "AUD", s.baseCurrency);
+          const formatted = new Intl.NumberFormat("en-AU", {
+            style: "currency",
+            currency: s.baseCurrency,
+            minimumFractionDigits: s.roundingPrecision,
+            maximumFractionDigits: s.roundingPrecision,
+          }).format(converted);
+          return (
+            <div className="price-highlight text-sm">
+              {formatted}
+              <span className="text-xs text-muted-foreground ml-1">/ {row.original.bestOffer.normalizedUnit}</span>
+            </div>
+          );
+        })()
       ),
     },
     {
@@ -224,19 +287,6 @@ export default function Dashboard() {
         <span className="text-xs text-muted-foreground">
           {formatDistanceToNow(new Date(row.original.lastUpdated), { addSuffix: true })}
         </span>
-      ),
-    },
-    {
-      id: "actions",
-      header: "Actions",
-      cell: ({ row }: any) => (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => handleViewMatrix(row.original)}
-        >
-          <Eye className="h-4 w-4" />
-        </Button>
       ),
     },
   ];
@@ -298,7 +348,7 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Filters */}
+      {/* Filters and Sorting */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -341,24 +391,20 @@ export default function Dashboard() {
               />
             </div>
 
-            <Select value={sortKey} onValueChange={(v) => setSortKey(v)}>
+            <Select value={sortKey} onValueChange={(v) => setSortKey(v as any)}>
               <SelectTrigger className="w-40">
                 <SelectValue placeholder="Sort" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="price">Sort by Price</SelectItem>
+                <SelectItem value="az">A–Z</SelectItem>
+                <SelectItem value="price">Price</SelectItem>
                 <SelectItem value="updated">Last Updated</SelectItem>
+                <SelectItem value="offers">Number of offers</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={sortDir} onValueChange={(v) => setSortDir(v as "asc" | "desc") }>
-              <SelectTrigger className="w-32">
-                <SelectValue placeholder="Order" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="asc">Asc</SelectItem>
-                <SelectItem value="desc">Desc</SelectItem>
-              </SelectContent>
-            </Select>
+            <Button variant="outline" size="icon" onClick={() => setSortDir(d => d === "asc" ? "desc" : "asc")}>
+              {sortDir === "asc" ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
+            </Button>
             <Button onClick={handleExport} variant="outline">
               <Download className="h-4 w-4 mr-2" />
               Export CSV
@@ -374,6 +420,24 @@ export default function Dashboard() {
             columns={columns}
             data={filteredProductOffers}
             searchKey="product.name"
+            getRowId={(row: ProductOffer) => row.product.id}
+            onBulkExportCsv={(rows: ProductOffer[]) => {
+              const csv = exportToCSV(rows);
+              downloadCSV(csv, `selected-products-${new Date().toISOString().slice(0,10)}.csv`);
+            }}
+            onBulkDelete={async (rows: ProductOffer[]) => {
+              // delete products (and their offers) by product id
+              const productIds = rows.map(r => r.product.id);
+              if (productIds.length === 0) return;
+              // Delete offers first
+              await supabase.from("offers").delete().in("product_id", productIds);
+              // Then delete products
+              await supabase.from("products").delete().in("id", productIds);
+              await loadData();
+              toast({ title: "Deleted", description: `Removed ${productIds.length} product(s)` });
+            }}
+            onRowFavoriteToggle={(row: ProductOffer) => toggleFavorite(row.product.id)}
+            isRowFavorited={(row: ProductOffer) => favoriteIds.includes(row.product.id)}
           />
         </CardContent>
       </Card>
@@ -384,6 +448,85 @@ export default function Dashboard() {
         onOpenChange={setMatrixOpen}
         productOffer={selectedProduct}
       />
+
+      {/* Supplier Products Dialog */}
+      <Dialog open={supplierDialogOpen} onOpenChange={setSupplierDialogOpen}>
+        <DialogContent className="max-w-3xl">
+          {supplierDialog && (
+            <>
+              <DialogHeader>
+                <div className="flex items-center justify-between gap-2">
+                  <DialogTitle>Products from {supplierDialog.name}</DialogTitle>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        setSupplierDialogOpen(false)
+                        window.location.href = `/app/suppliers/${supplierDialog.id}`
+                      }}
+                      aria-label="Maximize"
+                      className="rounded-sm opacity-70 hover:opacity-100"
+                    >
+                      <Maximize className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setSupplierDialogOpen(false)}
+                      aria-label="Close"
+                      className="rounded-sm opacity-70 hover:opacity-100"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </DialogHeader>
+              <div className="border rounded-lg overflow-hidden">
+                <Table>
+                  <TableHeader className="table-header">
+                    <TableRow>
+                      <TableHead>Product</TableHead>
+                      <TableHead>Best Price</TableHead>
+                      <TableHead>Updated</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {supplierDialog.products.map((po) => (
+                      <TableRow key={po.product.id}>
+                        <TableCell>
+                          <button
+                            className="font-medium text-sm underline-offset-2 hover:underline"
+                            onClick={() => handleViewMatrix(po)}
+                          >
+                            {po.product.name}
+                          </button>
+                        </TableCell>
+                        <TableCell className="price-highlight">
+                          {(() => {
+                            const s = getSettings();
+                            const converted = tryConvertAmount(po.bestOffer.normalizedPricePerUnit, "AUD", s.baseCurrency);
+                            return new Intl.NumberFormat("en-AU", {
+                              style: "currency",
+                              currency: s.baseCurrency,
+                              minimumFractionDigits: s.roundingPrecision,
+                              maximumFractionDigits: s.roundingPrecision,
+                            }).format(converted);
+                          })()}
+                          <span className="text-xs text-muted-foreground ml-1">/ {po.bestOffer.normalizedUnit}</span>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {formatDistanceToNow(new Date(po.lastUpdated), { addSuffix: true })}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

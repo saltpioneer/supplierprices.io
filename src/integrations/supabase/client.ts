@@ -30,11 +30,10 @@ if (!SUPABASE_PUBLISHABLE_KEY) {
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
-// Create a mock client if credentials are missing to prevent app crashes
 const isValidUrl = /^https?:\/\//i.test(SUPABASE_URL);
-const isValidKey = SUPABASE_PUBLISHABLE_KEY && SUPABASE_PUBLISHABLE_KEY !== "placeholder_key";
+const isValidKey = !!SUPABASE_PUBLISHABLE_KEY && SUPABASE_PUBLISHABLE_KEY !== "placeholder_key";
 
-export const supabase = isValidUrl && isValidKey 
+export const supabase = isValidUrl && isValidKey
   ? createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
       auth: {
         storage: localStorage,
@@ -42,32 +41,36 @@ export const supabase = isValidUrl && isValidKey
         autoRefreshToken: true,
       }
     })
-  : (() => {
-      // Robust mock client to prevent crashes when credentials are missing
-      const promiseResult = { data: [], error: null, count: 0 } as const;
-      const createBuilder = () => {
-        const builder: any = {
-          select: () => builder,
-          order: () => builder,
-          eq: () => builder,
-          ilike: () => builder,
-          limit: () => builder,
-          then: (onFulfilled: any, onRejected?: any) => Promise.resolve(promiseResult).then(onFulfilled, onRejected),
-        };
-        return builder;
-      };
-
-      return {
-        from: () => ({
-          select: () => createBuilder(),
-          insert: () => Promise.resolve(promiseResult),
-          update: () => Promise.resolve(promiseResult),
-          delete: () => Promise.resolve(promiseResult),
-        }),
-        auth: {
-          signIn: () => Promise.resolve({ data: null, error: null }),
-          signOut: () => Promise.resolve({ error: null }),
-          getUser: () => Promise.resolve({ data: null, error: null }),
-        }
-      } as const;
-    })();
+  : {
+      from: () => ({
+        select: () => Promise.resolve({ data: [], error: null }),
+        insert: () => Promise.resolve({ data: [], error: null }),
+        update: () => Promise.resolve({ data: [], error: null }),
+        delete: () => Promise.resolve({ data: [], error: null }),
+      }),
+      auth: {
+        getUser: () => {
+          const raw = localStorage.getItem("mock_auth_user");
+          return Promise.resolve({ data: raw ? { user: JSON.parse(raw) } : null, error: null });
+        },
+        signUp: async ({ email }: any) => {
+          const isMaster = String(import.meta.env.VITE_MASTER_EMAIL || "").toLowerCase() === String(email || "").toLowerCase();
+          const user = { id: "mock-user", email, is_master: isMaster };
+          localStorage.setItem("mock_auth_user", JSON.stringify(user));
+          return { data: { user }, error: null } as any;
+        },
+        signInWithPassword: async ({ email }: any) => {
+          localStorage.setItem("mock_auth_user", JSON.stringify({ id: "mock-user", email }));
+          return { data: { user: { id: "mock-user" } }, error: null } as any;
+        },
+        signOut: async () => {
+          localStorage.removeItem("mock_auth_user");
+          return { error: null } as any;
+        },
+        signInWithOAuth: async ({ provider }: any) => {
+          localStorage.setItem("mock_auth_user", JSON.stringify({ id: "mock-user", provider }));
+          return { data: { url: "/#/app/dashboard" }, error: null } as any;
+        },
+        onAuthStateChange: (callback: any) => ({ data: { subscription: { unsubscribe: () => {} } }, error: null }),
+      }
+    } as any;

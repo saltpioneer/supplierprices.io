@@ -1,9 +1,17 @@
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { 
+import { DataTable } from "@/components/data-table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -28,16 +36,21 @@ import {
   Tag,
   Building2,
   Mail,
-  Phone
+  Phone,
+  ArrowUp,
+  ArrowDown,
+  Search
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { formatDistanceToNow } from "date-fns";
 import type { Supplier } from "@/lib/types";
+import { downloadCSV } from "@/lib/filters";
 
 export default function Suppliers() {
   const { toast } = useToast();
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [offers, setOffers] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
   const [formData, setFormData] = useState({
@@ -45,36 +58,61 @@ export default function Suppliers() {
     contact: "",
     tags: [] as string[],
   });
+  const [listDialogOpen, setListDialogOpen] = useState(false);
+  const [listDialogData, setListDialogData] = useState<{ id: string; name: string; items: { id: string; name: string; updatedAt: string | null }[] } | null>(null);
+  const [sortKey, setSortKey] = useState<"az" | "offers" | "updated">("az");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
-  // Load suppliers and offers from Supabase
+  // Load suppliers, products, and offers from Supabase
   useEffect(() => {
     const load = async () => {
       const [supRes, offRes] = await Promise.all([
         supabase.from("suppliers").select("id,name,contact,tags"),
-        supabase.from("offers").select("id,supplier_id,updated_at"),
+        supabase.from("offers").select("id,product_id,supplier_id,updated_at"),
       ]);
       if (!supRes.error && supRes.data) setSuppliers(supRes.data);
       if (!offRes.error && offRes.data) setOffers(offRes.data);
+      const prodRes = await supabase.from("products").select("id,name");
+      if (!prodRes.error && prodRes.data) setProducts(prodRes.data);
     };
     load();
   }, []);
 
-  // Get offer stats per supplier
-  const supplierStats = suppliers.map(supplier => {
-    const supplierOffers = offers.filter(o => o.supplierId === supplier.id);
-    const lastUpdated = supplierOffers.length > 0 
-      ? supplierOffers.reduce((latest, current) => 
-          current.updatedAt > latest ? current.updatedAt : latest, 
-          supplierOffers[0].updatedAt
+  // Get offer stats per supplier (fix field names)
+  const supplierStats = useMemo(() => suppliers.map((supplier) => {
+    const supplierOffers = offers.filter((o) => o.supplier_id === supplier.id);
+    const lastUpdated = supplierOffers.length > 0
+      ? supplierOffers.reduce((latest: string, current: any) =>
+          (current.updated_at || "") > latest ? current.updated_at : latest,
+          supplierOffers[0].updated_at || ""
         )
       : null;
-
     return {
-      ...supplier,
+      id: supplier.id,
+      name: supplier.name,
+      contact: supplier.contact || "",
+      tags: supplier.tags || [],
       offerCount: supplierOffers.length,
       lastUpdated,
     };
-  });
+  }), [suppliers, offers]);
+
+  const sortedSuppliers = useMemo(() => {
+    const arr = [...supplierStats];
+    arr.sort((a, b) => {
+      if (sortKey === "az") {
+        return a.name.localeCompare(b.name);
+      }
+      if (sortKey === "offers") {
+        return a.offerCount - b.offerCount;
+      }
+      // updated
+      const ta = a.lastUpdated ? new Date(a.lastUpdated).getTime() : 0;
+      const tb = b.lastUpdated ? new Date(b.lastUpdated).getTime() : 0;
+      return ta - tb;
+    });
+    return sortDir === "asc" ? arr : arr.reverse();
+  }, [supplierStats, sortKey, sortDir]);
 
   const handleOpenDialog = (supplier?: Supplier) => {
     if (supplier) {
@@ -94,6 +132,52 @@ export default function Suppliers() {
     }
     setDialogOpen(true);
   };
+  const openSupplierProducts = (supplierId: string, supplierName: string) => {
+    const itemsMap = new Map<string, { id: string; name: string; updatedAt: string | null }>();
+    for (const o of offers) {
+      if (o.supplier_id !== supplierId) continue;
+      const prod = products.find((p) => p.id === o.product_id);
+      if (!prod) continue;
+      const current = itemsMap.get(prod.id);
+      const upd = o.updated_at || null;
+      if (!current) {
+        itemsMap.set(prod.id, { id: prod.id, name: prod.name, updatedAt: upd });
+      } else if (upd && (!current.updatedAt || upd > current.updatedAt)) {
+        current.updatedAt = upd;
+      }
+    }
+    setListDialogData({ id: supplierId, name: supplierName, items: Array.from(itemsMap.values()) });
+    setListDialogOpen(true);
+  };
+
+  const exportSuppliersCsv = (rows: any[]) => {
+    const header = ["Supplier","Contact","Tags","Offers","Last Updated"];
+    const lines = rows.map((r) => [
+      r.name,
+      r.contact || "",
+      (r.tags || []).join(";"),
+      String(r.offerCount),
+      r.lastUpdated || "",
+    ]);
+    const csv = [header, ...lines].map((row) => row.map((v) => `"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+    downloadCSV(csv, `suppliers-${new Date().toISOString().slice(0,10)}.csv`);
+  };
+
+  const deleteSuppliers = async (rows: any[]) => {
+    const ids = rows.map((r) => r.id);
+    if (ids.length === 0) return;
+    await supabase.from("offers").delete().in("supplier_id", ids);
+    await supabase.from("suppliers").delete().in("id", ids);
+    const [supRes, offRes] = await Promise.all([
+      supabase.from("suppliers").select("id,name,contact,tags"),
+      supabase.from("offers").select("id,product_id,supplier_id,updated_at"),
+    ]);
+    if (!supRes.error && supRes.data) setSuppliers(supRes.data);
+    if (!offRes.error && offRes.data) setOffers(offRes.data);
+    toast({ title: "Deleted", description: `Removed ${ids.length} supplier(s)` });
+  };
+
+  const handleRowDelete = async (row: any) => deleteSuppliers([row]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -198,82 +282,94 @@ export default function Suppliers() {
         </Dialog>
       </div>
 
-      <Card className="table-container">
+      <Card className="table-container data-grid-compact">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Users className="h-5 w-5" />
-            Supplier Directory ({suppliers.length})
-          </CardTitle>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              Supplier Directory ({suppliers.length})
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              <Select value={sortKey} onValueChange={(v) => setSortKey(v as any)}>
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="Sort by" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="az">A–Z</SelectItem>
+                  <SelectItem value="offers">Number of offers</SelectItem>
+                  <SelectItem value="updated">Last updated</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant="outline" size="icon" onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}>
+                {sortDir === "asc" ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
+              </Button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader className="table-header">
-              <TableRow>
-                <TableHead>Supplier</TableHead>
-                <TableHead>Contact</TableHead>
-                <TableHead>Tags</TableHead>
-                <TableHead>Offers</TableHead>
-                <TableHead>Last Updated</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {supplierStats.map((supplier) => (
-                <TableRow key={supplier.id} className="table-row">
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <Building2 className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-medium">{supplier.name}</span>
+          <DataTable
+            columns={[
+              {
+                accessorKey: "name",
+                header: "Supplier",
+                cell: ({ row }: any) => (
+                  <button className="font-medium text-sm underline-offset-2 hover:underline flex items-center gap-2" onClick={() => openSupplierProducts(row.original.id, row.original.name)}>
+                    <Building2 className="h-4 w-4 text-muted-foreground" />
+                    {row.original.name}
+                  </button>
+                ),
+              },
+              {
+                id: "contact",
+                header: "Contact",
+                cell: ({ row }: any) => (
+                  row.original.contact ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      {row.original.contact.includes("@") ? <Mail className="h-3 w-3" /> : <Phone className="h-3 w-3" />}
+                      {row.original.contact}
                     </div>
-                  </TableCell>
-                  <TableCell>
-                    {supplier.contact ? (
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        {supplier.contact.includes("@") ? (
-                          <Mail className="h-3 w-3" />
-                        ) : (
-                          <Phone className="h-3 w-3" />
-                        )}
-                        {supplier.contact}
-                      </div>
-                    ) : (
-                      <span className="text-muted-foreground">-</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {supplier.tags?.map(tag => (
-                        <Badge key={tag} variant="secondary" className="text-xs">
-                          <Tag className="h-2 w-2 mr-1" />
-                          {tag}
-                        </Badge>
-                      )) || <span className="text-muted-foreground">-</span>}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline">
-                      {supplier.offerCount}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {supplier.lastUpdated 
-                      ? formatDistanceToNow(new Date(supplier.lastUpdated), { addSuffix: true })
-                      : "Never"
-                    }
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleOpenDialog(supplier)}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+                  ) : <span className="text-muted-foreground">-</span>
+                ),
+              },
+              {
+                id: "tags",
+                header: "Tags",
+                cell: ({ row }: any) => (
+                  <div className="flex flex-wrap gap-1">
+                    {row.original.tags?.length > 0 ? row.original.tags.map((tag: string) => (
+                      <Badge key={tag} variant="secondary" className="text-xs">
+                        <Tag className="h-2 w-2 mr-1" />
+                        {tag}
+                      </Badge>
+                    )) : <span className="text-muted-foreground">-</span>}
+                  </div>
+                ),
+              },
+              {
+                accessorKey: "offerCount",
+                header: "Offers",
+                cell: ({ row }: any) => (
+                  <Badge variant="outline">{row.original.offerCount}</Badge>
+                ),
+              },
+              {
+                accessorKey: "lastUpdated",
+                header: "Last Updated",
+                cell: ({ row }: any) => (
+                  <span className="text-xs text-muted-foreground">
+                    {row.original.lastUpdated ? formatDistanceToNow(new Date(row.original.lastUpdated), { addSuffix: true }) : "Never"}
+                  </span>
+                ),
+              },
+            ]}
+            data={sortedSuppliers}
+            searchKey="name"
+            getRowId={(row: any) => row.id}
+            onRowEdit={(row: any) => handleOpenDialog(row)}
+            onRowDelete={handleRowDelete}
+            onBulkExportCsv={exportSuppliersCsv}
+            onBulkDelete={deleteSuppliers}
+          />
         </CardContent>
       </Card>
 
@@ -331,6 +427,39 @@ export default function Suppliers() {
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Supplier products list dialog */}
+      <Dialog open={listDialogOpen} onOpenChange={setListDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          {listDialogData && (
+            <>
+              <DialogHeader>
+                <DialogTitle>Products from {listDialogData.name}</DialogTitle>
+              </DialogHeader>
+              <div className="border rounded-lg overflow-hidden">
+                <Table>
+                  <TableHeader className="table-header">
+                    <TableRow>
+                      <TableHead>Product</TableHead>
+                      <TableHead>Last Updated</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {listDialogData.items.map((it) => (
+                      <TableRow key={it.id}>
+                        <TableCell className="font-medium text-sm">{it.name}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {it.updatedAt ? formatDistanceToNow(new Date(it.updatedAt), { addSuffix: true }) : "Never"}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>

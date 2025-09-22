@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AppShell } from "@/components/app-shell";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
 
 // Import pages
 import Dashboard from "@/pages/Dashboard";
@@ -22,6 +23,7 @@ import Invoices from "@/pages/Invoices";
 import Inventory from "@/pages/Inventory";
 import Projects from "@/pages/Projects";
 import PurchaseReceiptNew from "@/pages/PurchaseReceiptNew";
+import Login from "@/pages/Login";
 
 const queryClient = new QueryClient();
 
@@ -35,7 +37,8 @@ const App = () => {
           <HashRouter>
             <Routes>
               <Route path="/" element={<Navigate to="/app/dashboard" replace />} />
-              <Route path="/app" element={<AppShell />}>
+              <Route path="/login" element={<Login />} />
+              <Route path="/app" element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
                 <Route path="dashboard" element={<Dashboard />} />
                 <Route path="upload" element={<Upload />} />
                 <Route path="library" element={<Library />} />

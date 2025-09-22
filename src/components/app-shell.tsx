@@ -20,7 +20,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { getSettings, setSettings } from "@/lib/storage";
 import { CommandPalette } from "@/components/command-palette";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -193,6 +194,7 @@ export function AppShell() {
   const [avatarUrl, setAvatarUrl] = useState<string>("");
   const isMobile = useIsMobile();
   const location = useLocation();
+  const [baseCurrency, setBaseCurrency] = useState<string>(() => getSettings().baseCurrency);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -356,31 +358,51 @@ export function AppShell() {
             </Sheet>
           )}
 
-          {/* Search */}
-          <div className="flex-1 max-w-sm">
-            <Button
-              variant="outline"
-              className="w-full justify-start text-muted-foreground"
-              onClick={() => setCommandOpen(true)}
-            >
-              <Search className="h-4 w-4 mr-2" />
-              <span className="hidden lg:inline-flex">Search products, suppliers...</span>
-              <span className="lg:hidden">Search...</span>
-              <kbd className="pointer-events-none hidden h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100 lg:inline-flex ml-auto">
-                <span className="text-xs">⌘</span>K
-              </kbd>
-            </Button>
-          </div>
-
-          {/* Right side actions */}
-          <div className="flex items-center gap-2">
-            <ThemeToggle />
+          {/* Left cluster: global search + Upload */}
+          <div className="flex flex-1 items-center gap-2">
+            <div className="flex-1 max-w-sm">
+              <Button
+                variant="outline"
+                className="w-full h-9 justify-start text-muted-foreground"
+                onClick={() => setCommandOpen(true)}
+              >
+                <Search className="h-4 w-4 mr-2" />
+                <span className="hidden lg:inline-flex">Search products, suppliers...</span>
+                <span className="lg:hidden">Search...</span>
+                <kbd className="pointer-events-none hidden h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100 lg:inline-flex ml-auto">
+                  <span className="text-xs">⌘</span>K
+                </kbd>
+              </Button>
+            </div>
             <Button asChild size="sm">
               <NavLink to="/app/upload">
                 <Upload className="h-4 w-4 mr-2" />
                 Upload
               </NavLink>
             </Button>
+          </div>
+
+          {/* Right: Base currency + Sign out */}
+          <div className="ml-auto flex items-center gap-2">
+            <Select
+              value={baseCurrency}
+              onValueChange={(v) => {
+                setBaseCurrency(v);
+                const s = getSettings();
+                setSettings({ ...s, baseCurrency: v as any });
+              }}
+            >
+              <SelectTrigger className="w-28 h-9 justify-start text-muted-foreground">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="end">
+                <SelectItem value="AUD">AUD</SelectItem>
+                <SelectItem value="USD">USD</SelectItem>
+                <SelectItem value="EUR">EUR</SelectItem>
+                <SelectItem value="GBP">GBP</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="sm" onClick={async () => { try { await (supabase as any).auth.signOut(); } catch {} localStorage.removeItem("mock_auth_user"); window.location.href = "/#/login"; }}>Sign out</Button>
           </div>
         </header>
 

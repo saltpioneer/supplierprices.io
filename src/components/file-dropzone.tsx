@@ -16,17 +16,15 @@ export function FileDropzone({
   maxFiles = 10,
   accept = {
     'application/pdf': ['.pdf'],
+    // CSV variants
     'text/csv': ['.csv'],
+    'application/csv': ['.csv'],
+    'text/comma-separated-values': ['.csv'],
+    'text/tab-separated-values': ['.tsv'],
+    'text/plain': ['.txt', '.tsv', '.csv'],
+    // Excel variants (often used for CSV on macOS too)
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
-    'application/vnd.ms-excel': ['.xls'],
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
-    'application/msword': ['.doc'],
-    'text/plain': ['.txt'],
-    'image/jpeg': ['.jpg', '.jpeg'],
-    'image/png': ['.png'],
-    'image/gif': ['.gif'],
-    'image/webp': ['.webp'],
-    'image/tiff': ['.tiff', '.tif'],
+    'application/vnd.ms-excel': ['.xls', '.csv'],
   }
 }: FileDropzoneProps) {
   const onDrop = useCallback((acceptedFiles: File[]) => {
@@ -49,7 +47,7 @@ export function FileDropzone({
 
   const getFileIcon = (file: File) => {
     if (file.type.includes('pdf')) return FileText;
-    if (file.type.includes('csv') || file.type.includes('spreadsheet')) return Table;
+    if (file.type.includes('csv') || file.type.includes('spreadsheet') || file.name.toLowerCase().endsWith('.csv') || file.name.toLowerCase().endsWith('.tsv')) return Table;
     if (file.type.includes('word') || file.type.includes('document')) return FileType;
     if (file.type.includes('image')) return Image;
     if (file.type.includes('excel') || file.type.includes('sheet')) return FileSpreadsheet;
