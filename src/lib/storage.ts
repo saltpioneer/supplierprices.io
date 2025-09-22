@@ -9,7 +9,6 @@ const STORAGE_KEYS = {
   sources: "price-aggregator-sources",
   settings: "price-aggregator-settings",
   savedViews: "price-aggregator-saved-views",
-<<<<<<< HEAD
   orders: "price-aggregator-orders",
   customers: "price-aggregator-customers",
   salesOrders: "price-aggregator-sales-orders",
@@ -18,9 +17,7 @@ const STORAGE_KEYS = {
   inventory: "price-aggregator-inventory",
   projects: "price-aggregator-projects",
   purchaseReceipts: "price-aggregator-purchase-receipts",
-=======
   favorites: "price-aggregator-favorite-products",
->>>>>>> feature/auth-oauth
 } as const;
 
 // Generic storage functions
