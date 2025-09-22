@@ -12,6 +12,7 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState<'signin' | 'signup'>(() => (params.get('mode') === 'signup' ? 'signup' : 'signin'));
 
   useEffect(() => {
     // If already signed in (or mock), redirect
@@ -39,12 +40,14 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
     try {
-      const { error } = await (supabase as any).auth.signInWithPassword({ email, password });
+      const { error } = mode === 'signup'
+        ? await (supabase as any).auth.signUp({ email, password })
+        : await (supabase as any).auth.signInWithPassword({ email, password });
       if (error) throw error;
       navigate(next, { replace: true });
     } catch (err) {
       console.error(err);
-      alert("Login failed. Check credentials.");
+      alert(mode === 'signup' ? "Sign up failed." : "Login failed. Check credentials.");
     } finally {
       setLoading(false);
     }
@@ -60,8 +63,15 @@ export default function Login() {
           <form className="space-y-2" onSubmit={loginPassword}>
             <Input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required />
             <Input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} required />
-            <Button className="w-full" type="submit" disabled={loading}>{loading ? "Signing in..." : "Sign in"}</Button>
+            <Button className="w-full" type="submit" disabled={loading}>{loading ? (mode === 'signup' ? 'Creating...' : 'Signing in...') : (mode === 'signup' ? 'Create account' : 'Sign in')}</Button>
           </form>
+          <div className="text-xs text-center">
+            {mode === 'signup' ? (
+              <button className="underline" onClick={() => setMode('signin')}>Have an account? Sign in</button>
+            ) : (
+              <button className="underline" onClick={() => setMode('signup')}>Create account</button>
+            )}
+          </div>
           <div className="relative text-center text-xs text-muted-foreground"><span className="px-2 bg-background">OR</span></div>
           <Button variant="outline" className="w-full" onClick={loginGoogle}>Sign in with Google</Button>
           <div className="text-xs text-muted-foreground text-center">

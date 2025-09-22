@@ -53,6 +53,12 @@ export const supabase = isValidUrl && isValidKey
           const raw = localStorage.getItem("mock_auth_user");
           return Promise.resolve({ data: raw ? { user: JSON.parse(raw) } : null, error: null });
         },
+        signUp: async ({ email }: any) => {
+          const isMaster = String(import.meta.env.VITE_MASTER_EMAIL || "").toLowerCase() === String(email || "").toLowerCase();
+          const user = { id: "mock-user", email, is_master: isMaster };
+          localStorage.setItem("mock_auth_user", JSON.stringify(user));
+          return { data: { user }, error: null } as any;
+        },
         signInWithPassword: async ({ email }: any) => {
           localStorage.setItem("mock_auth_user", JSON.stringify({ id: "mock-user", email }));
           return { data: { user: { id: "mock-user" } }, error: null } as any;
