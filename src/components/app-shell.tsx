@@ -299,6 +299,10 @@ export function AppShell() {
   // Load company profile (global single row)
   useEffect(() => {
     const load = async () => {
+      // Ensure there is at least one profile row; if missing, create from auth user
+      const { data: authData } = await (supabase as any).auth.getUser?.();
+      const authEmail: string | undefined = authData?.user?.email;
+
       const { data, error } = await supabase
         .from("profiles")
         .select("id, company_name, avatar_url, updated_at")
@@ -307,6 +311,17 @@ export function AppShell() {
       if (!error && data && data[0]) {
         setCompanyName(data[0].company_name || "Your Company");
         setAvatarUrl(data[0].avatar_url || "");
+      } else if (!error && (!data || data.length === 0) && authEmail) {
+        const defaultName = authEmail.split("@")[0];
+        const insertRes = await supabase
+          .from("profiles")
+          .insert([{ company_name: defaultName, avatar_url: "" }])
+          .select("company_name, avatar_url")
+          .limit(1);
+        if (!insertRes.error && insertRes.data && insertRes.data[0]) {
+          setCompanyName(insertRes.data[0].company_name || "Your Company");
+          setAvatarUrl(insertRes.data[0].avatar_url || "");
+        }
       }
     };
     load();

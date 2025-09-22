@@ -33,7 +33,7 @@ export default function Login() {
       const mapped = provider === 'azure' ? 'azure' : provider; // supabase uses 'azure' for Microsoft
       const { data, error } = await (supabase as any).auth.signInWithOAuth({ provider: mapped, options: { redirectTo: window.location.origin + "/#/app/dashboard" } });
       if (error) throw error;
-      if (data?.url) window.location.href = data.url;
+      if (data?.url) window.location.href = data.url + `&redirect_to=${encodeURIComponent(window.location.origin + '/#/app/dashboard')}`;
     } catch (e) {
       console.error(e);
       if (!REAL_AUTH || DEV_OVERRIDE) {
