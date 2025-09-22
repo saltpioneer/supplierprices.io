@@ -63,6 +63,13 @@ export const supabase = isValidUrl && isValidKey
           localStorage.setItem("mock_auth_user", JSON.stringify({ id: "mock-user", email }));
           return { data: { user: { id: "mock-user" } }, error: null } as any;
         },
+        resetPasswordForEmail: async (_email: string, _opts?: any) => {
+          // Simulate sending email; in real mode Supabase sends a link
+          return { data: {}, error: null } as any;
+        },
+        updateUser: async (_payload: any) => {
+          return { data: { user: { id: "mock-user" } }, error: null } as any;
+        },
         signOut: async () => {
           localStorage.removeItem("mock_auth_user");
           return { error: null } as any;
